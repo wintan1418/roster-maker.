@@ -17,7 +17,6 @@ import ShuffleButton from '@/components/roster/ShuffleButton';
 import RosterCell from '@/components/roster/RosterCell';
 import useShuffle from '@/hooks/useShuffle';
 import { formatDate } from '@/lib/utils';
-import { getDemoRolesForTeam } from '@/lib/demoData';
 
 /**
  * RosterGrid - The main roster grid editor.
@@ -29,6 +28,8 @@ import { getDemoRolesForTeam } from '@/lib/demoData';
 export default function RosterGrid({
   roster,
   events,
+  roles = [],
+  members = [],
   initialAssignments = {},
   onPreview,
   onPublish,
@@ -39,11 +40,6 @@ export default function RosterGrid({
   const [hasChanges, setHasChanges] = useState(false);
 
   const { shuffle, clearAutoAssignments, isShuffling } = useShuffle();
-
-  const roles = useMemo(
-    () => getDemoRolesForTeam(roster.team_id),
-    [roster.team_id]
-  );
 
   // Calculate assignment counts per member across the entire roster
   const assignmentCounts = useMemo(() => {
@@ -343,6 +339,7 @@ export default function RosterGrid({
                           dateStr={event.date}
                           assignment={assignments[cellKey]}
                           assignmentCounts={assignmentCounts}
+                          members={members}
                           onAssign={handleAssign}
                           onRemove={handleRemove}
                           onToggleManual={handleToggleManual}

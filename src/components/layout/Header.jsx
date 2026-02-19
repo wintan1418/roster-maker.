@@ -1,10 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Menu, Bell, ChevronDown, User, LogOut } from 'lucide-react';
 import clsx from 'clsx';
+import useAuthStore from '@/stores/authStore';
+import { getInitials } from '@/lib/utils';
 
 export default function Header({ title = 'Dashboard', onMenuToggle }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const navigate = useNavigate();
+  const { user, profile, signOut } = useAuthStore();
+
+  const displayName = profile?.full_name || user?.user_metadata?.full_name || 'User';
+  const initials = getInitials(displayName);
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -16,13 +24,19 @@ export default function Header({ title = 'Dashboard', onMenuToggle }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const handleSignOut = async () => {
+    setDropdownOpen(false);
+    await signOut();
+    navigate('/login');
+  };
+
   return (
     <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-surface-200 bg-white px-4 sm:px-6">
       {/* Left section */}
       <div className="flex items-center gap-3">
         <button
           onClick={onMenuToggle}
-          className="rounded-lg p-2 text-surface-500 transition-colors hover:bg-surface-100 hover:text-surface-700 md:hidden"
+          className="rounded-lg p-2 text-surface-500 transition-colors hover:bg-surface-100 hover:text-surface-700 md:hidden cursor-pointer"
           aria-label="Toggle menu"
         >
           <Menu className="h-5 w-5" />
@@ -36,7 +50,7 @@ export default function Header({ title = 'Dashboard', onMenuToggle }) {
       <div className="flex items-center gap-2">
         {/* Notification bell */}
         <button
-          className="relative rounded-lg p-2 text-surface-500 transition-colors hover:bg-surface-100 hover:text-surface-700"
+          className="relative rounded-lg p-2 text-surface-500 transition-colors hover:bg-surface-100 hover:text-surface-700 cursor-pointer"
           aria-label="Notifications"
         >
           <Bell className="h-5 w-5" />
@@ -48,15 +62,15 @@ export default function Header({ title = 'Dashboard', onMenuToggle }) {
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
             className={clsx(
-              'flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-surface-100',
+              'flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-surface-100 cursor-pointer',
               dropdownOpen && 'bg-surface-100'
             )}
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-500 text-xs font-semibold text-white">
-              JD
+              {initials}
             </div>
             <span className="hidden text-sm font-medium text-surface-700 sm:block">
-              John Doe
+              {displayName}
             </span>
             <ChevronDown
               className={clsx(
@@ -69,12 +83,15 @@ export default function Header({ title = 'Dashboard', onMenuToggle }) {
           {/* Dropdown menu */}
           {dropdownOpen && (
             <div className="absolute right-0 mt-2 w-48 origin-top-right rounded-xl border border-surface-200 bg-white py-1 shadow-lg">
-              <button className="flex w-full items-center gap-2 px-4 py-2 text-sm text-surface-700 transition-colors hover:bg-surface-50">
+              <button className="flex w-full items-center gap-2 px-4 py-2 text-sm text-surface-700 transition-colors hover:bg-surface-50 cursor-pointer">
                 <User className="h-4 w-4" />
                 Profile
               </button>
               <hr className="my-1 border-surface-100" />
-              <button className="flex w-full items-center gap-2 px-4 py-2 text-sm text-error transition-colors hover:bg-red-50">
+              <button
+                onClick={handleSignOut}
+                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-error transition-colors hover:bg-red-50 cursor-pointer"
+              >
                 <LogOut className="h-4 w-4" />
                 Sign out
               </button>

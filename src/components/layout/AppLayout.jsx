@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import useAuth from '@/hooks/useAuth';
+import LoadingSpinner from '@/components/ui/LoadingSpinner';
 
 const pageTitles = {
   '/dashboard': 'Dashboard',
@@ -12,13 +14,9 @@ const pageTitles = {
 };
 
 function getPageTitle(pathname) {
-  // Try exact match first
   if (pageTitles[pathname]) return pageTitles[pathname];
-
-  // Try pattern matches
   if (/^\/teams\/[^/]+$/.test(pathname)) return 'Team Details';
   if (/^\/rosters\/[^/]+$/.test(pathname)) return 'Edit Roster';
-
   return 'RosterFlow';
 }
 
@@ -26,18 +24,25 @@ export default function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const { initialized } = useAuth();
 
   const title = getPageTitle(location.pathname);
 
+  if (!initialized) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-surface-50">
+        <LoadingSpinner size="xl" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-surface-50">
-      {/* Desktop sidebar */}
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
 
-      {/* Mobile sidebar drawer */}
       {mobileMenuOpen && (
         <Sidebar
           mobile
@@ -46,7 +51,6 @@ export default function AppLayout() {
         />
       )}
 
-      {/* Main content area */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header
           title={title}

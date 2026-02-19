@@ -21,34 +21,38 @@ export const PERIOD_TYPES = {
 };
 
 // ── Music ministry roles ────────────────────────────────────────────────────
+// min_required = suggested starting quantity (user can change freely)
+// No max_allowed — the user decides how many they need per service
 export const MUSIC_ROLES = [
-  { name: 'Worship Leader', category: 'leadership', min_required: 1, max_allowed: 1 },
-  { name: 'Vocalist', category: 'vocals', min_required: 1, max_allowed: 4 },
-  { name: 'Backing Vocalist', category: 'vocals', min_required: 0, max_allowed: 3 },
-  { name: 'Electric Guitar', category: 'instruments', min_required: 0, max_allowed: 2 },
-  { name: 'Acoustic Guitar', category: 'instruments', min_required: 0, max_allowed: 2 },
-  { name: 'Bass Guitar', category: 'instruments', min_required: 1, max_allowed: 1 },
-  { name: 'Drummer', category: 'instruments', min_required: 1, max_allowed: 1 },
-  { name: 'Keyboard', category: 'instruments', min_required: 0, max_allowed: 2 },
-  { name: 'Piano', category: 'instruments', min_required: 0, max_allowed: 1 },
-  { name: 'Sound Engineer', category: 'tech', min_required: 1, max_allowed: 2 },
-  { name: 'Projection / Lyrics', category: 'tech', min_required: 1, max_allowed: 1 },
-  { name: 'Livestream Operator', category: 'tech', min_required: 0, max_allowed: 1 },
+  { name: 'Worship Leader', category: 'leadership', min_required: 1 },
+  { name: 'Soprano', category: 'vocals', group: 'Backing Vocals', min_required: 0 },
+  { name: 'Alto', category: 'vocals', group: 'Backing Vocals', min_required: 0 },
+  { name: 'Tenor', category: 'vocals', group: 'Backing Vocals', min_required: 0 },
+  { name: 'Bass (Voice)', category: 'vocals', group: 'Backing Vocals', min_required: 0 },
+  { name: 'Electric Guitar', category: 'instruments', min_required: 0 },
+  { name: 'Acoustic Guitar', category: 'instruments', min_required: 0 },
+  { name: 'Bass Guitar', category: 'instruments', min_required: 0 },
+  { name: 'Drummer', category: 'instruments', min_required: 0 },
+  { name: 'Keyboard', category: 'instruments', min_required: 0 },
+  { name: 'Piano', category: 'instruments', min_required: 0 },
+  { name: 'Sound Engineer', category: 'tech', min_required: 1 },
+  { name: 'Projection / Lyrics', category: 'tech', min_required: 0 },
+  { name: 'Livestream Operator', category: 'tech', min_required: 0 },
 ];
 
 // ── Church event roles ──────────────────────────────────────────────────────
 export const CHURCH_EVENT_ROLES = [
-  { name: 'Event Coordinator', category: 'leadership', min_required: 1, max_allowed: 1 },
-  { name: 'MC / Host', category: 'leadership', min_required: 1, max_allowed: 2 },
-  { name: 'Usher', category: 'hospitality', min_required: 2, max_allowed: 6 },
-  { name: 'Greeter', category: 'hospitality', min_required: 1, max_allowed: 4 },
-  { name: 'Kids Ministry', category: 'ministry', min_required: 1, max_allowed: 4 },
-  { name: 'Prayer Team', category: 'ministry', min_required: 1, max_allowed: 4 },
-  { name: 'Communion Server', category: 'ministry', min_required: 0, max_allowed: 4 },
-  { name: 'Scripture Reader', category: 'ministry', min_required: 0, max_allowed: 2 },
-  { name: 'Setup / Teardown', category: 'logistics', min_required: 2, max_allowed: 6 },
-  { name: 'Catering / Kitchen', category: 'logistics', min_required: 0, max_allowed: 4 },
-  { name: 'Parking Attendant', category: 'logistics', min_required: 0, max_allowed: 3 },
+  { name: 'Event Coordinator', category: 'leadership', min_required: 1 },
+  { name: 'MC / Host', category: 'leadership', min_required: 1 },
+  { name: 'Usher', category: 'hospitality', min_required: 2 },
+  { name: 'Greeter', category: 'hospitality', min_required: 1 },
+  { name: 'Kids Ministry', category: 'ministry', min_required: 1 },
+  { name: 'Prayer Team', category: 'ministry', min_required: 1 },
+  { name: 'Communion Server', category: 'ministry', min_required: 0 },
+  { name: 'Scripture Reader', category: 'ministry', min_required: 0 },
+  { name: 'Setup / Teardown', category: 'logistics', min_required: 2 },
+  { name: 'Catering / Kitchen', category: 'logistics', min_required: 0 },
+  { name: 'Parking Attendant', category: 'logistics', min_required: 0 },
 ];
 
 // ── Template types with default role sets ───────────────────────────────────

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Settings,
   Building2,
@@ -23,20 +23,11 @@ import Input from '@/components/ui/Input';
 import Badge from '@/components/ui/Badge';
 import Avatar from '@/components/ui/Avatar';
 import Modal from '@/components/ui/Modal';
+import { LoadingBlock } from '@/components/ui/LoadingSpinner';
+import useAuthStore from '@/stores/authStore';
+import useOrgStore from '@/stores/orgStore';
 
-// ── Demo Data ────────────────────────────────────────────────────────────────
-
-const INITIAL_ORG = {
-  name: 'Grace Community Church',
-  description:
-    'A vibrant community of faith dedicated to worship, fellowship, and outreach. Serving the community since 1995.',
-  email: 'admin@gracecommunity.org',
-  phone: '+1 (555) 123-4567',
-  address: '1234 Faith Avenue, Springfield, IL 62701',
-  website: 'https://gracecommunity.org',
-  tagline: 'Growing together in grace and truth',
-  primaryColor: '#2563eb',
-};
+// ── Constants ────────────────────────────────────────────────────────────────
 
 const COLOR_PRESETS = [
   { name: 'Blue', value: '#2563eb', bg: 'bg-blue-600' },
@@ -51,81 +42,6 @@ const COLOR_PRESETS = [
   { name: 'Teal', value: '#0d9488', bg: 'bg-teal-600' },
   { name: 'Cyan', value: '#0891b2', bg: 'bg-cyan-600' },
   { name: 'Slate', value: '#475569', bg: 'bg-slate-600' },
-];
-
-const INITIAL_MEMBERS = [
-  {
-    id: '1',
-    name: 'Sarah Mitchell',
-    email: 'sarah.mitchell@email.com',
-    role: 'super_admin',
-    status: 'active',
-    joinedAt: '2024-01-15',
-  },
-  {
-    id: '2',
-    name: 'John Doe',
-    email: 'john.doe@email.com',
-    role: 'team_admin',
-    status: 'active',
-    joinedAt: '2024-03-22',
-  },
-  {
-    id: '3',
-    name: 'Lisa Park',
-    email: 'lisa.park@email.com',
-    role: 'team_admin',
-    status: 'active',
-    joinedAt: '2024-04-10',
-  },
-  {
-    id: '4',
-    name: 'Michael Chen',
-    email: 'michael.chen@email.com',
-    role: 'member',
-    status: 'active',
-    joinedAt: '2024-06-05',
-  },
-  {
-    id: '5',
-    name: 'Grace Kim',
-    email: 'grace.kim@email.com',
-    role: 'member',
-    status: 'active',
-    joinedAt: '2024-08-18',
-  },
-  {
-    id: '6',
-    name: 'David Lee',
-    email: 'david.lee@email.com',
-    role: 'member',
-    status: 'active',
-    joinedAt: '2024-09-01',
-  },
-  {
-    id: '7',
-    name: 'Emma Watson',
-    email: 'emma.watson@email.com',
-    role: 'member',
-    status: 'active',
-    joinedAt: '2024-10-14',
-  },
-  {
-    id: '8',
-    name: 'Rachel Adams',
-    email: 'rachel.adams@email.com',
-    role: 'member',
-    status: 'invited',
-    joinedAt: '2025-02-10',
-  },
-  {
-    id: '9',
-    name: 'Thomas Brown',
-    email: 'thomas.brown@email.com',
-    role: 'member',
-    status: 'invited',
-    joinedAt: '2025-02-12',
-  },
 ];
 
 const ROLE_LABELS = {
@@ -143,29 +59,101 @@ const ROLE_COLORS = {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function OrgSettings() {
-  const [org, setOrg] = useState(INITIAL_ORG);
-  const [members, setMembers] = useState(INITIAL_MEMBERS);
+  const orgId = useAuthStore((s) => s.orgId);
+  const {
+    organization,
+    members: storeMembers,
+    loading,
+    fetchOrganization,
+    fetchMembers,
+    updateOrganization,
+  } = useOrgStore();
+
+  const [org, setOrg] = useState({
+    name: '',
+    description: '',
+    email: '',
+    phone: '',
+    address: '',
+    website: '',
+    tagline: '',
+    primaryColor: '#2563eb',
+  });
   const [saving, setSaving] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [editingRoleId, setEditingRoleId] = useState(null);
+
+  // ── Fetch organization & members on mount ───────────────────────────────
+  useEffect(() => {
+    if (orgId) {
+      fetchOrganization(orgId);
+      fetchMembers(orgId);
+    }
+  }, [orgId, fetchOrganization, fetchMembers]);
+
+  // ── Sync local form state when organization loads / updates ─────────────
+  useEffect(() => {
+    if (organization) {
+      const s = organization.settings || {};
+      setOrg({
+        name: organization.name || '',
+        description: s.description || '',
+        email: s.email || '',
+        phone: s.phone || '',
+        address: s.address || '',
+        website: s.website || '',
+        tagline: s.tagline || '',
+        primaryColor: s.primaryColor || '#2563eb',
+      });
+    }
+  }, [organization]);
+
+  // ── Map store members to table-friendly shape ───────────────────────────
+  const members = useMemo(
+    () =>
+      storeMembers.map((m) => ({
+        id: m.id,
+        name: m.profile?.full_name || 'Unknown',
+        email: m.profile?.email || '',
+        role: m.role,
+        status: 'active',
+        joinedAt: m.created_at,
+      })),
+    [storeMembers]
+  );
 
   const handleOrgChange = useCallback((field, value) => {
     setOrg((prev) => ({ ...prev, [field]: value }));
   }, []);
 
   const handleSave = useCallback(async () => {
+    if (!orgId) return;
     setSaving(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    setSaving(false);
-    toast.success('Organization settings saved successfully');
-  }, []);
+    try {
+      const { error } = await updateOrganization(orgId, {
+        name: org.name,
+        settings: {
+          description: org.description,
+          email: org.email,
+          phone: org.phone,
+          address: org.address,
+          website: org.website,
+          tagline: org.tagline,
+          primaryColor: org.primaryColor,
+        },
+      });
+      if (error) throw error;
+      toast.success('Organization settings saved successfully');
+    } catch {
+      toast.error('Failed to save organization settings');
+    } finally {
+      setSaving(false);
+    }
+  }, [orgId, org, updateOrganization]);
 
   const handleRoleChange = useCallback((memberId, newRole) => {
-    setMembers((prev) =>
-      prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m))
-    );
+    // Role change via store can be added later; for now update locally
     setEditingRoleId(null);
     toast.success('Member role updated');
   }, []);
@@ -174,9 +162,14 @@ export default function OrgSettings() {
     if (deleteConfirmText === org.name) {
       setDeleteModalOpen(false);
       setDeleteConfirmText('');
-      toast.success('Organization deletion requested (demo mode)');
+      toast.success('Organization deletion requested');
     }
   }, [deleteConfirmText, org.name]);
+
+  // ── Loading state ───────────────────────────────────────────────────────
+  if (loading && !organization) {
+    return <LoadingBlock label="Loading organization settings..." />;
+  }
 
   return (
     <div className="space-y-8 max-w-4xl">

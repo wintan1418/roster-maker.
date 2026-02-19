@@ -1,12 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Plus, Pin, Shuffle, X, User, AlertCircle, Check } from 'lucide-react';
+import { Plus, Pin, Shuffle, X, User, Check } from 'lucide-react';
 import clsx from 'clsx';
 import Avatar from '@/components/ui/Avatar';
-import {
-  getDemoMember,
-  isMemberAvailable,
-  getDemoMembersForTeam,
-} from '@/lib/demoData';
 
 /**
  * RosterCell - An individual cell in the roster grid.
@@ -24,6 +19,7 @@ export default function RosterCell({
   onRemove,            // (eventId, roleId) => void
   onToggleManual,      // (eventId, roleId) => void
   assignedToEvent,     // Set of memberIds already assigned to this event
+  members = [],        // all team members
   readOnly = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -32,7 +28,7 @@ export default function RosterCell({
   const dropdownRef = useRef(null);
 
   const member = assignment?.memberId
-    ? getDemoMember(assignment.memberId)
+    ? members.find((m) => m.id === assignment.memberId || m.user_id === assignment.memberId)
     : null;
 
   const isManual = assignment?.manual ?? false;
@@ -57,15 +53,12 @@ export default function RosterCell({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  // Get all team members who have this role, with availability info
+  // Get all team members with assignment info
   const memberOptions = useCallback(() => {
-    const teamMembers = getDemoMembersForTeam(teamId);
-    const withRole = teamMembers.filter((m) => m.roleIds.includes(roleId));
-
-    return withRole
+    return members
       .map((m) => ({
         ...m,
-        available: isMemberAvailable(m.id, dateStr),
+        available: true,
         alreadyAssigned: assignedToEvent?.has(m.id) && m.id !== assignment?.memberId,
         count: assignmentCounts?.[m.id] || 0,
         isSelected: m.id === assignment?.memberId,
@@ -74,16 +67,13 @@ export default function RosterCell({
         // Selected first
         if (a.isSelected && !b.isSelected) return -1;
         if (!a.isSelected && b.isSelected) return 1;
-        // Available before unavailable
-        if (a.available && !b.available) return -1;
-        if (!a.available && b.available) return 1;
         // Not assigned to event before already assigned
         if (!a.alreadyAssigned && b.alreadyAssigned) return -1;
         if (a.alreadyAssigned && !b.alreadyAssigned) return 1;
         // Fewest assignments first
         return a.count - b.count;
       });
-  }, [teamId, roleId, dateStr, assignedToEvent, assignment, assignmentCounts]);
+  }, [members, assignedToEvent, assignment, assignmentCounts]);
 
   const handleCellClick = () => {
     if (readOnly) return;
@@ -221,14 +211,20 @@ export default function RosterCell({
 
           {/* Member list */}
           <div className="overflow-y-auto max-h-48">
-            {filteredOptions.length === 0 ? (
+            {members.length === 0 ? (
               <div className="p-4 text-center text-sm text-surface-400">
                 <User size={20} className="mx-auto mb-1 opacity-50" />
-                No eligible members found
+                <p>No team members yet</p>
+                <p className="text-xs mt-0.5">Add members to your team first</p>
+              </div>
+            ) : filteredOptions.length === 0 ? (
+              <div className="p-4 text-center text-sm text-surface-400">
+                <User size={20} className="mx-auto mb-1 opacity-50" />
+                No matching members found
               </div>
             ) : (
               filteredOptions.map((m) => {
-                const isDisabled = !m.available || m.alreadyAssigned;
+                const isDisabled = m.alreadyAssigned;
                 return (
                   <button
                     key={m.id}
@@ -257,12 +253,6 @@ export default function RosterCell({
                       </p>
                       <div className="flex items-center gap-2 text-[10px] text-surface-400">
                         <span>{m.count} assignment{m.count !== 1 ? 's' : ''}</span>
-                        {!m.available && (
-                          <span className="inline-flex items-center gap-0.5 text-amber-500">
-                            <AlertCircle size={9} />
-                            Unavailable
-                          </span>
-                        )}
                         {m.alreadyAssigned && (
                           <span className="text-surface-400">
                             Already assigned

@@ -16,6 +16,7 @@ const useRosterStore = create((set) => ({
    * Fetch all rosters belonging to a team.
    */
   fetchRosters: async (teamId) => {
+    if (!supabase) return { data: [], error: null };
     set({ loading: true });
     try {
       const { data, error } = await supabase
@@ -29,6 +30,34 @@ const useRosterStore = create((set) => ({
       return { data: data ?? [], error: null };
     } catch (err) {
       console.error('Failed to fetch rosters:', err.message);
+      return { data: [], error: err };
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  /**
+   * Fetch all rosters across all teams in an org.
+   */
+  fetchOrgRosters: async (orgId) => {
+    if (!supabase || !orgId) return { data: [], error: null };
+    set({ loading: true });
+    try {
+      const { data, error } = await supabase
+        .from('rosters')
+        .select('*, team:teams!inner(id, name)')
+        .eq('team.org_id', orgId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      const rosters = (data ?? []).map((r) => ({
+          ...r,
+          team_name: r.team?.name || 'Unknown Team',
+        }));
+      set({ rosters });
+      return { data: rosters, error: null };
+    } catch (err) {
+      console.error('Failed to fetch org rosters:', err.message);
       return { data: [], error: err };
     } finally {
       set({ loading: false });

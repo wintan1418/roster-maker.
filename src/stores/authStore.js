@@ -6,6 +6,8 @@ const noSupabase = { data: null, error: new Error('Supabase not configured') };
 const useAuthStore = create((set, get) => ({
   user: null,
   profile: null,
+  orgId: null,
+  orgRole: null,
   loading: false,
   initialized: false,
 
@@ -20,9 +22,12 @@ const useAuthStore = create((set, get) => ({
         set({ user });
 
         if (user) {
-          setTimeout(() => get().fetchProfile(user.id), 0);
+          setTimeout(async () => {
+            await get().fetchProfile(user.id);
+            await get().fetchOrgMembership(user.id);
+          }, 0);
         } else {
-          set({ profile: null });
+          set({ profile: null, orgId: null, orgRole: null });
         }
 
         if (!get().initialized) {
@@ -47,6 +52,25 @@ const useAuthStore = create((set, get) => ({
       set({ profile: data });
     } catch (err) {
       console.error('Failed to fetch profile:', err.message);
+    }
+  },
+
+  fetchOrgMembership: async (userId) => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('org_members')
+        .select('organization_id, role')
+        .eq('user_id', userId)
+        .limit(1)
+        .single();
+
+      if (error) throw error;
+      set({ orgId: data.organization_id, orgRole: data.role });
+    } catch (err) {
+      // User may not have an org yet (fresh signup that failed org creation)
+      console.warn('No org membership found:', err.message);
+      set({ orgId: null, orgRole: null });
     }
   },
 

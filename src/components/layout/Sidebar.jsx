@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
@@ -9,6 +9,8 @@ import {
   LogOut,
 } from 'lucide-react';
 import clsx from 'clsx';
+import useAuthStore from '@/stores/authStore';
+import { getInitials } from '@/lib/utils';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -18,6 +20,17 @@ const navItems = [
 ];
 
 export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }) {
+  const navigate = useNavigate();
+  const { user, profile, signOut } = useAuthStore();
+
+  const displayName = profile?.full_name || user?.user_metadata?.full_name || 'User';
+  const initials = getInitials(displayName);
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login');
+  };
+
   return (
     <>
       {/* Mobile overlay backdrop */}
@@ -84,7 +97,7 @@ export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }
         {!mobile && (
           <button
             onClick={onToggle}
-            className="mx-3 mb-2 flex items-center justify-center rounded-lg p-2 text-surface-400 transition-colors hover:bg-white/10 hover:text-white"
+            className="mx-3 mb-2 flex items-center justify-center rounded-lg p-2 text-surface-400 transition-colors hover:bg-white/10 hover:text-white cursor-pointer"
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {collapsed ? (
@@ -104,22 +117,25 @@ export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }
         >
           <div
             className={clsx(
-              'flex items-center rounded-lg p-2 transition-colors hover:bg-white/10',
+              'flex items-center rounded-lg p-2 transition-colors',
               collapsed && !mobile ? 'justify-center' : 'gap-3'
             )}
           >
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-400 text-xs font-semibold text-white">
-              JD
+              {initials}
             </div>
             {(!collapsed || mobile) && (
               <div className="flex-1 overflow-hidden">
-                <p className="truncate text-sm font-medium text-white">John Doe</p>
-                <p className="truncate text-xs text-surface-400">Admin</p>
+                <p className="truncate text-sm font-medium text-white">{displayName}</p>
+                <p className="truncate text-xs text-surface-400">
+                  {profile?.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                </p>
               </div>
             )}
             {(!collapsed || mobile) && (
               <button
-                className="shrink-0 text-surface-400 transition-colors hover:text-white"
+                onClick={handleSignOut}
+                className="shrink-0 text-surface-400 transition-colors hover:text-white cursor-pointer"
                 title="Sign out"
               >
                 <LogOut className="h-4 w-4" />

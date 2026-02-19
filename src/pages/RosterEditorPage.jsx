@@ -1,8 +1,9 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   PenLine,
+  Loader2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Button from '@/components/ui/Button';
@@ -11,11 +12,10 @@ import RosterCreator from '@/components/roster/RosterCreator';
 import RosterGrid from '@/components/roster/RosterGrid';
 import RosterPreview from '@/components/roster/RosterPreview';
 import RosterPublish from '@/components/roster/RosterPublish';
-import {
-  DEMO_ROSTERS,
-  DEMO_EVENTS,
-  DEMO_ASSIGNMENTS,
-} from '@/lib/demoData';
+import useRosterStore from '@/stores/rosterStore';
+import useTeamStore from '@/stores/teamStore';
+import useAuthStore from '@/stores/authStore';
+import { supabase } from '@/lib/supabase';
 import { ROSTER_STATUS } from '@/lib/constants';
 
 // Views within the editor page
@@ -26,84 +26,214 @@ const VIEW = {
   PUBLISH: 'publish',
 };
 
+/**
+ * Expand wizard roles (with quantity) into individual numbered slots
+ * for use as grid columns.
+ *
+ * Input:  [{ id, name, quantity, category, group }, ...]
+ * Output: [{ id, name, originalRole, slotIndex }, ...]
+ *
+ * If quantity > 1, names are numbered: "Soprano 1", "Soprano 2".
+ * If quantity === 1, no number suffix: "Worship Leader".
+ * Roles with quantity === 0 are skipped.
+ */
+function expandRolesToSlots(roles) {
+  const slots = [];
+  for (const role of roles) {
+    const qty = role.quantity || 0;
+    if (qty === 0) continue;
+
+    for (let i = 1; i <= qty; i++) {
+      slots.push({
+        id: qty > 1 ? `${role.id}__${i}` : role.id,
+        name: qty > 1 ? `${role.name} ${i}` : role.name,
+        originalRole: role,
+        slotIndex: i,
+      });
+    }
+  }
+  return slots;
+}
+
 export default function RosterEditorPage() {
   const { rosterId } = useParams();
   const navigate = useNavigate();
   const isNew = !rosterId;
 
-  // Load existing roster data or start fresh
-  const existingRoster = useMemo(
-    () => DEMO_ROSTERS.find((r) => r.id === rosterId),
-    [rosterId]
-  );
+  // Stores
+  const { fetchRoster, publishRoster } = useRosterStore();
+  const { fetchTeamMembers, fetchTeamRoles, members, roles: teamRoles } = useTeamStore();
+  const { user } = useAuthStore();
 
-  const existingEvents = useMemo(
-    () => (rosterId ? DEMO_EVENTS[rosterId] || [] : []),
-    [rosterId]
-  );
-
-  const existingAssignments = useMemo(
-    () => (rosterId ? DEMO_ASSIGNMENTS[rosterId] || {} : {}),
-    [rosterId]
-  );
-
-  // Current view state
+  // Local state
   const [currentView, setCurrentView] = useState(
     isNew ? VIEW.CREATOR : VIEW.EDITOR
   );
+  const [roster, setRoster] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [roleSlots, setRoleSlots] = useState([]);
+  const [currentAssignments, setCurrentAssignments] = useState({});
+  const [pageLoading, setPageLoading] = useState(!isNew);
 
-  // Roster data (set after creation or loaded from existing)
-  const [roster, setRoster] = useState(existingRoster || null);
-  const [events, setEvents] = useState(existingEvents);
-  const [currentAssignments, setCurrentAssignments] = useState(existingAssignments);
+  // ── Load existing roster ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!rosterId) return;
 
-  // Handle roster creation from wizard
+    let cancelled = false;
+
+    async function loadRoster() {
+      setPageLoading(true);
+      try {
+        // Fetch roster + joined events
+        const { data: rosterData, error: rosterErr } = await fetchRoster(rosterId);
+        if (rosterErr) throw rosterErr;
+        if (cancelled || !rosterData) return;
+
+        setRoster(rosterData);
+        setEvents(
+          (rosterData.events ?? [])
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.event_date.localeCompare(b.event_date))
+            .map((e) => ({
+              id: e.id,
+              roster_id: e.roster_id,
+              name: e.event_name,
+              date: e.event_date,
+              time: e.event_time,
+              sort_order: e.sort_order,
+            }))
+        );
+
+        // Fetch team roles and members in parallel
+        if (rosterData.team_id) {
+          const [rolesResult, membersResult] = await Promise.all([
+            fetchTeamRoles(rosterData.team_id),
+            fetchTeamMembers(rosterData.team_id),
+          ]);
+
+          if (cancelled) return;
+
+          // Convert team roles into slot-style objects for the grid
+          // Team roles from DB have { id, name, category, ... } but no quantity,
+          // so each DB role becomes one slot.
+          const dbRoles = rolesResult.data ?? [];
+          const slots = dbRoles.map((r) => ({
+            id: r.id,
+            name: r.name,
+            originalRole: r,
+            slotIndex: 1,
+          }));
+          setRoleSlots(slots);
+        }
+
+        setCurrentView(VIEW.EDITOR);
+      } catch (err) {
+        console.error('Failed to load roster:', err);
+        toast.error('Failed to load roster. Please try again.');
+      } finally {
+        if (!cancelled) setPageLoading(false);
+      }
+    }
+
+    loadRoster();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rosterId, fetchRoster, fetchTeamRoles, fetchTeamMembers]);
+
+  // ── Handle roster creation from wizard ────────────────────────────────────
   const handleCreate = useCallback(
-    (formData) => {
-      const newRoster = {
-        id: `roster-new-${Date.now()}`,
-        title: formData.title,
-        team_id: formData.teamId,
-        team_name: formData.team_name,
-        status: ROSTER_STATUS.DRAFT,
-        period_type: formData.periodType,
-        start_date: formData.startDate,
-        end_date: formData.endDate,
-        created_at: new Date().toISOString(),
-        published_at: null,
-        event_count: formData.events.length,
-      };
+    async (formData) => {
+      try {
+        // 1. Insert the roster row
+        const { data: newRoster, error: rosterErr } = await supabase
+          .from('rosters')
+          .insert({
+            title: formData.title,
+            team_id: formData.teamId || null,
+            period_type: formData.periodType,
+            start_date: formData.startDate,
+            end_date: formData.endDate,
+            status: ROSTER_STATUS.DRAFT,
+            created_by: user?.id || null,
+          })
+          .select()
+          .single();
 
-      setRoster(newRoster);
-      setEvents(formData.events);
-      setCurrentAssignments({});
-      setCurrentView(VIEW.EDITOR);
+        if (rosterErr) throw rosterErr;
 
-      toast.success('Roster created! Start assigning members.');
+        // 2. Insert roster events
+        let savedEvents = [];
+        if (formData.events?.length > 0) {
+          const eventRows = formData.events.map((evt, idx) => ({
+            roster_id: newRoster.id,
+            event_name: evt.name,
+            event_date: evt.date,
+            event_time: evt.time || null,
+            sort_order: idx,
+          }));
+
+          const { data: evtData, error: evtErr } = await supabase
+            .from('roster_events')
+            .insert(eventRows)
+            .select();
+
+          if (evtErr) throw evtErr;
+          savedEvents = (evtData ?? []).map((e) => ({
+            id: e.id,
+            roster_id: e.roster_id,
+            name: e.event_name,
+            date: e.event_date,
+            time: e.event_time,
+            sort_order: e.sort_order,
+          }));
+        }
+
+        // 3. Expand wizard roles into numbered slots for grid columns
+        const activeRoles = (formData.roles ?? []).filter((r) => (r.quantity || 0) > 0);
+        const slots = expandRolesToSlots(activeRoles);
+
+        // 4. If a team was selected, fetch its members
+        if (formData.teamId) {
+          await fetchTeamMembers(formData.teamId);
+        }
+
+        // 5. Update local state and switch to editor
+        setRoster({
+          ...newRoster,
+          team_name: formData.team_name || formData.teamName || formData.title,
+        });
+        setEvents(savedEvents);
+        setRoleSlots(slots);
+        setCurrentAssignments({});
+        setCurrentView(VIEW.EDITOR);
+
+        toast.success('Roster created! Start assigning members.');
+
+        // Update the URL to include the new roster ID (without full navigation)
+        navigate(`/rosters/${newRoster.id}`, { replace: true });
+      } catch (err) {
+        console.error('Failed to create roster:', err);
+        toast.error(err.message || 'Failed to create roster. Please try again.');
+      }
     },
-    []
+    [user, navigate, fetchTeamMembers]
   );
 
   const handleCancelCreate = useCallback(() => {
     navigate('/rosters');
   }, [navigate]);
 
-  // Preview and publish handlers
-  const handlePreview = useCallback(
-    (assignments) => {
-      setCurrentAssignments(assignments);
-      setCurrentView(VIEW.PREVIEW);
-    },
-    []
-  );
+  // ── Preview and publish handlers ──────────────────────────────────────────
+  const handlePreview = useCallback((assignments) => {
+    setCurrentAssignments(assignments);
+    setCurrentView(VIEW.PREVIEW);
+  }, []);
 
-  const handlePublish = useCallback(
-    (assignments) => {
-      setCurrentAssignments(assignments);
-      setCurrentView(VIEW.PUBLISH);
-    },
-    []
-  );
+  const handlePublish = useCallback((assignments) => {
+    setCurrentAssignments(assignments);
+    setCurrentView(VIEW.PUBLISH);
+  }, []);
 
   const handleSave = useCallback((assignments) => {
     setCurrentAssignments(assignments);
@@ -113,19 +243,37 @@ export default function RosterEditorPage() {
     setCurrentView(VIEW.EDITOR);
   }, []);
 
-  const handleConfirmPublish = useCallback(() => {
-    if (roster) {
+  const handleConfirmPublish = useCallback(async () => {
+    if (!roster?.id) return;
+
+    try {
+      const { data, error } = await publishRoster(roster.id);
+      if (error) throw error;
+
       setRoster((prev) => ({
         ...prev,
         status: ROSTER_STATUS.PUBLISHED,
-        published_at: new Date().toISOString(),
+        published_at: data?.published_at || new Date().toISOString(),
       }));
+    } catch (err) {
+      console.error('Failed to publish roster:', err);
+      toast.error('Failed to publish roster. Please try again.');
     }
-  }, [roster]);
+  }, [roster, publishRoster]);
 
   const handleBackToRosters = useCallback(() => {
     navigate('/rosters');
   }, [navigate]);
+
+  // ── Loading state for existing rosters ────────────────────────────────────
+  if (pageLoading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 size={32} className="animate-spin text-primary-500" />
+        <span className="ml-3 text-surface-500">Loading roster...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -196,6 +344,8 @@ export default function RosterEditorPage() {
         <RosterGrid
           roster={roster}
           events={events}
+          roles={roleSlots}
+          members={members}
           initialAssignments={currentAssignments}
           onPreview={handlePreview}
           onPublish={handlePublish}

@@ -1,31 +1,40 @@
 import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
 
-const useTeamStore = create((set) => ({
-  // ── State ───────────────────────────────────────────────────────────────────
+const useTeamStore = create((set, get) => ({
   teams: [],
   currentTeam: null,
   members: [],
   roles: [],
   loading: false,
 
-  // ── Actions ─────────────────────────────────────────────────────────────────
-
-  /**
-   * Fetch all teams in an organization.
-   */
   fetchTeams: async (orgId) => {
+    if (!supabase || !orgId) return { data: [], error: null };
     set({ loading: true });
     try {
       const { data, error } = await supabase
         .from('teams')
-        .select('*')
-        .eq('organization_id', orgId)
+        .select('*, team_members(id, user_id, is_team_admin, profile:profiles(full_name, avatar_url)), team_roles(id)')
+        .eq('org_id', orgId)
         .order('name', { ascending: true });
 
       if (error) throw error;
-      set({ teams: data ?? [] });
-      return { data: data ?? [], error: null };
+
+      // Flatten for TeamCard: attach members[] and roles[] arrays
+      const teams = (data ?? []).map((t) => ({
+        ...t,
+        members: (t.team_members ?? []).map((tm) => ({
+          id: tm.id,
+          user_id: tm.user_id,
+          is_admin: tm.is_team_admin,
+          name: tm.profile?.full_name || 'Unknown',
+          avatar_url: tm.profile?.avatar_url || '',
+        })),
+        roles: t.team_roles ?? [],
+      }));
+
+      set({ teams });
+      return { data: teams, error: null };
     } catch (err) {
       console.error('Failed to fetch teams:', err.message);
       return { data: [], error: err };
@@ -34,10 +43,8 @@ const useTeamStore = create((set) => ({
     }
   },
 
-  /**
-   * Fetch a single team by ID.
-   */
   fetchTeam: async (teamId) => {
+    if (!supabase) return { data: null, error: null };
     set({ loading: true });
     try {
       const { data, error } = await supabase
@@ -57,15 +64,13 @@ const useTeamStore = create((set) => ({
     }
   },
 
-  /**
-   * Create a new team.
-   */
-  createTeam: async (data) => {
+  createTeam: async (teamData) => {
+    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
     set({ loading: true });
     try {
       const { data: team, error } = await supabase
         .from('teams')
-        .insert(data)
+        .insert(teamData)
         .select()
         .single();
 
@@ -80,10 +85,8 @@ const useTeamStore = create((set) => ({
     }
   },
 
-  /**
-   * Update an existing team.
-   */
   updateTeam: async (teamId, updates) => {
+    if (!supabase) return { data: null, error: null };
     set({ loading: true });
     try {
       const { data, error } = await supabase
@@ -107,10 +110,8 @@ const useTeamStore = create((set) => ({
     }
   },
 
-  /**
-   * Delete a team by ID.
-   */
   deleteTeam: async (teamId) => {
+    if (!supabase) return { error: null };
     set({ loading: true });
     try {
       const { error } = await supabase
@@ -132,24 +133,36 @@ const useTeamStore = create((set) => ({
     }
   },
 
-  /**
-   * Fetch members of a specific team (via team_members join).
-   */
   fetchTeamMembers: async (teamId) => {
+    if (!supabase) return { data: [], error: null };
     set({ loading: true });
     try {
       const { data, error } = await supabase
         .from('team_members')
         .select(`
           *,
-          profile:profiles(*)
+          profile:profiles(id, full_name, email, phone, avatar_url)
         `)
         .eq('team_id', teamId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      set({ members: data ?? [] });
-      return { data: data ?? [], error: null };
+
+      // Flatten so components get { id, name, email, ... } shape
+      const members = (data ?? []).map((tm) => ({
+        id: tm.id,
+        user_id: tm.user_id,
+        team_id: tm.team_id,
+        is_admin: tm.is_team_admin,
+        name: tm.profile?.full_name || 'Unknown',
+        email: tm.profile?.email || '',
+        phone: tm.profile?.phone || '',
+        avatar_url: tm.profile?.avatar_url || '',
+        created_at: tm.created_at,
+      }));
+
+      set({ members });
+      return { data: members, error: null };
     } catch (err) {
       console.error('Failed to fetch team members:', err.message);
       return { data: [], error: err };
@@ -158,17 +171,15 @@ const useTeamStore = create((set) => ({
     }
   },
 
-  /**
-   * Fetch the defined roles for a team.
-   */
   fetchTeamRoles: async (teamId) => {
+    if (!supabase) return { data: [], error: null };
     set({ loading: true });
     try {
       const { data, error } = await supabase
         .from('team_roles')
         .select('*')
         .eq('team_id', teamId)
-        .order('name', { ascending: true });
+        .order('sort_order', { ascending: true });
 
       if (error) throw error;
       set({ roles: data ?? [] });
@@ -178,6 +189,89 @@ const useTeamStore = create((set) => ({
       return { data: [], error: err };
     } finally {
       set({ loading: false });
+    }
+  },
+
+  addTeamRole: async (teamId, roleData) => {
+    if (!supabase) return { data: null, error: null };
+    try {
+      const { data, error } = await supabase
+        .from('team_roles')
+        .insert({ team_id: teamId, ...roleData })
+        .select()
+        .single();
+
+      if (error) throw error;
+      set((state) => ({ roles: [...state.roles, data] }));
+      return { data, error: null };
+    } catch (err) {
+      console.error('Failed to add role:', err.message);
+      return { data: null, error: err };
+    }
+  },
+
+  updateTeamRole: async (roleId, updates) => {
+    if (!supabase) return { data: null, error: null };
+    try {
+      const { data, error } = await supabase
+        .from('team_roles')
+        .update(updates)
+        .eq('id', roleId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      set((state) => ({
+        roles: state.roles.map((r) => (r.id === roleId ? data : r)),
+      }));
+      return { data, error: null };
+    } catch (err) {
+      console.error('Failed to update role:', err.message);
+      return { data: null, error: err };
+    }
+  },
+
+  deleteTeamRole: async (roleId) => {
+    if (!supabase) return { error: null };
+    try {
+      const { error } = await supabase
+        .from('team_roles')
+        .delete()
+        .eq('id', roleId);
+
+      if (error) throw error;
+      set((state) => ({
+        roles: state.roles.filter((r) => r.id !== roleId),
+      }));
+      return { error: null };
+    } catch (err) {
+      console.error('Failed to delete role:', err.message);
+      return { error: err };
+    }
+  },
+
+  addBulkRoles: async (teamId, roles) => {
+    if (!supabase || roles.length === 0) return { data: [], error: null };
+    try {
+      const rows = roles.map((r, i) => ({
+        team_id: teamId,
+        name: r.name,
+        category: r.category || null,
+        min_required: r.min_required ?? 1,
+        max_allowed: r.max_allowed ?? null,
+        sort_order: i,
+      }));
+      const { data, error } = await supabase
+        .from('team_roles')
+        .insert(rows)
+        .select();
+
+      if (error) throw error;
+      set((state) => ({ roles: [...state.roles, ...(data ?? [])] }));
+      return { data: data ?? [], error: null };
+    } catch (err) {
+      console.error('Failed to bulk add roles:', err.message);
+      return { data: [], error: err };
     }
   },
 }));

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -15,86 +15,11 @@ import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import Badge from '@/components/ui/Badge';
 import TeamList from '@/components/teams/TeamList';
-import { TEMPLATE_TYPES, MUSIC_ROLES, CHURCH_EVENT_ROLES } from '@/lib/constants';
+import useAuthStore from '@/stores/authStore';
+import useTeamStore from '@/stores/teamStore';
+import { TEMPLATE_TYPES } from '@/lib/constants';
 
-// ── Demo data ────────────────────────────────────────────────────────────────
-
-const DEMO_MEMBERS = [
-  { id: 'm1', name: 'Sarah Johnson', email: 'sarah.j@gracechurch.org', phone: '(555) 123-4567', is_admin: true },
-  { id: 'm2', name: 'David Kim', email: 'david.k@gracechurch.org', phone: '(555) 234-5678', is_admin: false },
-  { id: 'm3', name: 'Rachel Thompson', email: 'rachel.t@gracechurch.org', phone: '(555) 345-6789', is_admin: false },
-  { id: 'm4', name: 'Michael Chen', email: 'michael.c@gracechurch.org', phone: '', is_admin: false },
-  { id: 'm5', name: 'Emily Davis', email: 'emily.d@gracechurch.org', phone: '(555) 456-7890', is_admin: true },
-  { id: 'm6', name: 'James Wilson', email: 'james.w@gracechurch.org', phone: '(555) 567-8901', is_admin: false },
-  { id: 'm7', name: 'Grace Lee', email: 'grace.l@gracechurch.org', phone: '(555) 678-9012', is_admin: false },
-  { id: 'm8', name: 'Daniel Brown', email: 'daniel.b@gracechurch.org', phone: '', is_admin: false },
-  { id: 'm9', name: 'Hannah Martinez', email: 'hannah.m@gracechurch.org', phone: '(555) 789-0123', is_admin: false },
-  { id: 'm10', name: 'Andrew Taylor', email: 'andrew.t@gracechurch.org', phone: '(555) 890-1234', is_admin: false },
-];
-
-const musicRoles = MUSIC_ROLES.map((r, i) => ({ id: `mr${i + 1}`, ...r }));
-const eventRoles = CHURCH_EVENT_ROLES.map((r, i) => ({ id: `er${i + 1}`, ...r }));
-
-function assignRoles(memberIds, roles) {
-  return memberIds.map((id) => {
-    const member = DEMO_MEMBERS.find((m) => m.id === id);
-    const numRoles = 1 + Math.floor(Math.random() * 2);
-    const shuffled = [...roles].sort(() => 0.5 - Math.random());
-    return {
-      ...member,
-      roles: shuffled.slice(0, numRoles),
-    };
-  });
-}
-
-const INITIAL_TEAMS = [
-  {
-    id: 'team-1',
-    name: 'Music Ministry',
-    description: 'Sunday morning worship team. Includes vocalists, instrumentalists, and technical crew for our weekly services.',
-    template_type: 'music',
-    created_at: '2025-09-15T10:00:00Z',
-    members: assignRoles(['m1', 'm2', 'm3', 'm4', 'm6', 'm7'], musicRoles),
-    roles: musicRoles,
-  },
-  {
-    id: 'team-2',
-    name: 'Ushers & Greeters',
-    description: 'Hospitality team responsible for welcoming, seating, and assisting during services and events.',
-    template_type: 'church_event',
-    created_at: '2025-10-02T14:30:00Z',
-    members: assignRoles(['m5', 'm8', 'm9', 'm10'], eventRoles),
-    roles: eventRoles,
-  },
-  {
-    id: 'team-3',
-    name: 'Prayer Team',
-    description: 'Dedicated intercessors who pray during services and are available for prayer ministry after each gathering.',
-    template_type: 'custom',
-    created_at: '2025-11-20T09:00:00Z',
-    members: assignRoles(['m1', 'm3', 'm5', 'm7', 'm9'], [
-      { id: 'pr1', name: 'Prayer Leader', category: 'leadership', min_required: 1, max_allowed: 2 },
-      { id: 'pr2', name: 'Intercessor', category: 'ministry', min_required: 2, max_allowed: 6 },
-      { id: 'pr3', name: 'Altar Worker', category: 'ministry', min_required: 1, max_allowed: 4 },
-    ]),
-    roles: [
-      { id: 'pr1', name: 'Prayer Leader', category: 'leadership', min_required: 1, max_allowed: 2 },
-      { id: 'pr2', name: 'Intercessor', category: 'ministry', min_required: 2, max_allowed: 6 },
-      { id: 'pr3', name: 'Altar Worker', category: 'ministry', min_required: 1, max_allowed: 4 },
-    ],
-  },
-  {
-    id: 'team-4',
-    name: 'Youth Ministry',
-    description: 'Youth service team for Friday night gatherings, camps, and outreach events for ages 13-18.',
-    template_type: 'church_event',
-    created_at: '2026-01-08T16:00:00Z',
-    members: assignRoles(['m2', 'm4', 'm6', 'm8', 'm10'], eventRoles.slice(0, 6)),
-    roles: eventRoles.slice(0, 6),
-  },
-];
-
-// ── Template icon map ────────────────────────────────────────────────────────
+// -- Template icon map --------------------------------------------------------
 
 const templateIcons = {
   music: Music,
@@ -102,11 +27,13 @@ const templateIcons = {
   custom: Layers,
 };
 
-// ── Page component ───────────────────────────────────────────────────────────
+// -- Page component -----------------------------------------------------------
 
 export default function TeamsPage() {
   const navigate = useNavigate();
-  const [teams, setTeams] = useState(INITIAL_TEAMS);
+  const orgId = useAuthStore((s) => s.orgId);
+  const { teams, loading, fetchTeams, createTeam, addBulkRoles } = useTeamStore();
+
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
@@ -115,6 +42,16 @@ export default function TeamsPage() {
     template_type: '',
   });
   const [errors, setErrors] = useState({});
+
+  // Fetch teams when orgId becomes available
+  useEffect(() => {
+    if (orgId) {
+      fetchTeams(orgId);
+    }
+  }, [orgId, fetchTeams]);
+
+  // fetchTeams now includes members[] and roles[] already
+  const teamsForList = teams;
 
   function handleFormChange(e) {
     const { name, value } = e.target;
@@ -139,36 +76,48 @@ export default function TeamsPage() {
 
       setCreating(true);
 
-      // Simulate async operation
-      await new Promise((r) => setTimeout(r, 600));
+      try {
+        // 1. Create the team in Supabase
+        const { data: newTeam, error } = await createTeam({
+          org_id: orgId,
+          name: form.name.trim(),
+          description: form.description.trim(),
+          template_type: form.template_type,
+        });
 
-      const template = TEMPLATE_TYPES[form.template_type];
-      const defaultRoles = (template?.defaultRoles || []).map((role, i) => ({
-        id: `new-r-${Date.now()}-${i}`,
-        ...role,
-      }));
+        if (error || !newTeam) {
+          toast.error(error?.message || 'Failed to create team');
+          return;
+        }
 
-      const newTeam = {
-        id: `team-${Date.now()}`,
-        name: form.name.trim(),
-        description: form.description.trim(),
-        template_type: form.template_type,
-        created_at: new Date().toISOString(),
-        members: [],
-        roles: defaultRoles,
-      };
+        // 2. Bulk-add default template roles
+        const template = TEMPLATE_TYPES[form.template_type];
+        const defaultRoles = template?.defaultRoles || [];
 
-      setTeams((prev) => [...prev, newTeam]);
-      toast.success(`Team "${newTeam.name}" created successfully`);
-      setCreateOpen(false);
-      setForm({ name: '', description: '', template_type: '' });
-      setErrors({});
-      setCreating(false);
+        if (defaultRoles.length > 0) {
+          const { error: rolesError } = await addBulkRoles(newTeam.id, defaultRoles);
+          if (rolesError) {
+            console.error('Failed to add default roles:', rolesError.message);
+            // Team was created successfully; warn but don't block navigation
+            toast.error('Team created but default roles could not be added');
+          }
+        }
 
-      // Navigate to the new team
-      navigate(`/teams/${newTeam.id}`);
+        toast.success(`Team "${newTeam.name}" created successfully`);
+        setCreateOpen(false);
+        setForm({ name: '', description: '', template_type: '' });
+        setErrors({});
+
+        // Navigate to the new team
+        navigate(`/teams/${newTeam.id}`);
+      } catch (err) {
+        console.error('Create team error:', err);
+        toast.error('Something went wrong while creating the team');
+      } finally {
+        setCreating(false);
+      }
     },
-    [form, navigate]
+    [form, orgId, navigate, createTeam, addBulkRoles]
   );
 
   function handleCloseCreate() {
@@ -198,7 +147,8 @@ export default function TeamsPage() {
 
       {/* Team grid */}
       <TeamList
-        teams={teams}
+        teams={teamsForList}
+        loading={loading}
         onCreateTeam={() => setCreateOpen(true)}
       />
 
@@ -313,6 +263,3 @@ export default function TeamsPage() {
     </div>
   );
 }
-
-// Export demo data for use in TeamDetailPage
-export { INITIAL_TEAMS, DEMO_MEMBERS };
