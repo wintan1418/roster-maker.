@@ -1,0 +1,419 @@
+import { useState } from 'react';
+import clsx from 'clsx';
+import {
+  LayoutDashboard,
+  Users,
+  ShieldCheck,
+  Calendar,
+  Pencil,
+  Check,
+  X,
+  Trash2,
+  Music,
+  Church,
+  Layers,
+} from 'lucide-react';
+import toast from 'react-hot-toast';
+import Card from '@/components/ui/Card';
+import Badge from '@/components/ui/Badge';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import Modal from '@/components/ui/Modal';
+import Avatar from '@/components/ui/Avatar';
+import { formatDate } from '@/lib/utils';
+import TeamMemberManager from '@/components/teams/TeamMemberManager';
+import TeamRoleEditor from '@/components/teams/TeamRoleEditor';
+
+const TABS = [
+  { key: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { key: 'members', label: 'Members', icon: Users },
+  { key: 'roles', label: 'Roles', icon: ShieldCheck },
+];
+
+const templateConfig = {
+  music: { label: 'Music / Worship', color: 'primary', icon: Music },
+  church_event: { label: 'Church Event', color: 'success', icon: Church },
+  custom: { label: 'Custom', color: 'default', icon: Layers },
+};
+
+export default function TeamDetail({
+  team,
+  members = [],
+  roles = [],
+  onUpdateTeam,
+  onDeleteTeam,
+  onAddMember,
+  onRemoveMember,
+  onToggleAdmin,
+  onUpdateMemberRoles,
+  onAddRole,
+  onEditRole,
+  onDeleteRole,
+  onLoadTemplate,
+}) {
+  const [activeTab, setActiveTab] = useState('overview');
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState(team?.name || '');
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  if (!team) return null;
+
+  const config = templateConfig[team.template_type] || templateConfig.custom;
+  const TemplateIcon = config.icon;
+
+  function handleSaveName() {
+    if (!nameValue.trim()) {
+      toast.error('Team name cannot be empty');
+      return;
+    }
+    onUpdateTeam?.({ name: nameValue.trim() });
+    toast.success('Team name updated');
+    setEditingName(false);
+  }
+
+  function handleCancelName() {
+    setNameValue(team.name);
+    setEditingName(false);
+  }
+
+  function handleDelete() {
+    onDeleteTeam?.();
+    setDeleteOpen(false);
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Team header */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex-1 min-w-0">
+          {/* Editable team name */}
+          {editingName ? (
+            <div className="flex items-center gap-2">
+              <Input
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                className="text-xl font-bold"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveName();
+                  if (e.key === 'Escape') handleCancelName();
+                }}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                iconLeft={Check}
+                onClick={handleSaveName}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                iconLeft={X}
+                onClick={handleCancelName}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 group">
+              <h1 className="text-2xl font-bold text-surface-900 truncate">
+                {team.name}
+              </h1>
+              <button
+                onClick={() => {
+                  setNameValue(team.name);
+                  setEditingName(true);
+                }}
+                className="p-1 rounded-md text-surface-400 hover:text-surface-600 hover:bg-surface-100 opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer"
+                aria-label="Edit team name"
+              >
+                <Pencil size={14} />
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 mt-2">
+            <Badge color={config.color} size="sm">
+              <TemplateIcon size={12} />
+              {config.label}
+            </Badge>
+            {team.created_at && (
+              <span className="text-sm text-surface-400 flex items-center gap-1">
+                <Calendar size={14} />
+                Created {formatDate(team.created_at)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          iconLeft={Trash2}
+          onClick={() => setDeleteOpen(true)}
+          className="text-red-500 border-red-200 hover:bg-red-50 hover:border-red-300"
+        >
+          Delete Team
+        </Button>
+      </div>
+
+      {/* Tab navigation */}
+      <div className="flex items-center gap-1 p-1 bg-surface-100 rounded-xl w-fit">
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={clsx(
+                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium',
+                'transition-all duration-200 cursor-pointer',
+                isActive
+                  ? 'bg-white text-surface-900 shadow-sm'
+                  : 'text-surface-500 hover:text-surface-700 hover:bg-white/50'
+              )}
+            >
+              <Icon size={16} />
+              {tab.label}
+              {tab.key === 'members' && members.length > 0 && (
+                <span
+                  className={clsx(
+                    'ml-0.5 text-xs px-1.5 py-0.5 rounded-full',
+                    isActive
+                      ? 'bg-primary-100 text-primary-700'
+                      : 'bg-surface-200 text-surface-600'
+                  )}
+                >
+                  {members.length}
+                </span>
+              )}
+              {tab.key === 'roles' && roles.length > 0 && (
+                <span
+                  className={clsx(
+                    'ml-0.5 text-xs px-1.5 py-0.5 rounded-full',
+                    isActive
+                      ? 'bg-primary-100 text-primary-700'
+                      : 'bg-surface-200 text-surface-600'
+                  )}
+                >
+                  {roles.length}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Tab content */}
+      <div>
+        {activeTab === 'overview' && (
+          <OverviewTab team={team} members={members} roles={roles} />
+        )}
+        {activeTab === 'members' && (
+          <TeamMemberManager
+            members={members}
+            roles={roles}
+            onAddMember={onAddMember}
+            onRemoveMember={onRemoveMember}
+            onToggleAdmin={onToggleAdmin}
+            onUpdateMemberRoles={onUpdateMemberRoles}
+          />
+        )}
+        {activeTab === 'roles' && (
+          <TeamRoleEditor
+            roles={roles}
+            onAddRole={onAddRole}
+            onEditRole={onEditRole}
+            onDeleteRole={onDeleteRole}
+            onLoadTemplate={onLoadTemplate}
+          />
+        )}
+      </div>
+
+      {/* Delete confirmation modal */}
+      <Modal
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title="Delete Team"
+        description={`Are you sure you want to delete "${team.name}"? All members, roles, and associated rosters will be permanently removed. This cannot be undone.`}
+        width="sm"
+      >
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setDeleteOpen(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={handleDelete} iconLeft={Trash2}>
+            Delete Team
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    </div>
+  );
+}
+
+function OverviewTab({ team, members, roles }) {
+  const adminCount = members.filter((m) => m.is_admin).length;
+
+  // Group roles by category
+  const rolesByCategory = roles.reduce((acc, role) => {
+    const cat = role.category || 'general';
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(role);
+    return acc;
+  }, {});
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-3">
+      {/* Quick stats */}
+      <div className="lg:col-span-3 grid gap-4 sm:grid-cols-3">
+        <Card>
+          <div className="flex items-center gap-4">
+            <div className="rounded-xl bg-primary-100 p-3">
+              <Users className="h-5 w-5 text-primary-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-surface-900">
+                {members.length}
+              </p>
+              <p className="text-sm text-surface-500">Team Members</p>
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <div className="flex items-center gap-4">
+            <div className="rounded-xl bg-emerald-100 p-3">
+              <ShieldCheck className="h-5 w-5 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-surface-900">
+                {roles.length}
+              </p>
+              <p className="text-sm text-surface-500">Defined Roles</p>
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <div className="flex items-center gap-4">
+            <div className="rounded-xl bg-amber-100 p-3">
+              <ShieldCheck className="h-5 w-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-surface-900">
+                {adminCount}
+              </p>
+              <p className="text-sm text-surface-500">Team Admins</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Team info */}
+      <div className="lg:col-span-2">
+        <Card>
+          <Card.Header>
+            <Card.Title>Team Information</Card.Title>
+          </Card.Header>
+          <Card.Body className="space-y-4">
+            {team.description && (
+              <div>
+                <p className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1">
+                  Description
+                </p>
+                <p className="text-sm text-surface-700">{team.description}</p>
+              </div>
+            )}
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1">
+                  Template Type
+                </p>
+                <p className="text-sm text-surface-700 capitalize">
+                  {team.template_type?.replace('_', ' ') || 'Custom'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-1">
+                  Created
+                </p>
+                <p className="text-sm text-surface-700">
+                  {team.created_at ? formatDate(team.created_at) : 'Unknown'}
+                </p>
+              </div>
+            </div>
+          </Card.Body>
+        </Card>
+      </div>
+
+      {/* Recent members */}
+      <div className="lg:col-span-1">
+        <Card>
+          <Card.Header>
+            <Card.Title>Members</Card.Title>
+          </Card.Header>
+          <Card.Body>
+            {members.length === 0 ? (
+              <p className="text-sm text-surface-400 text-center py-4">
+                No members yet
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {members.slice(0, 6).map((member) => (
+                  <div key={member.id} className="flex items-center gap-3">
+                    <Avatar name={member.name} src={member.avatar_url} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-surface-800 truncate">
+                        {member.name}
+                      </p>
+                      <p className="text-xs text-surface-400 truncate">
+                        {member.roles?.map((r) => r.name).join(', ') || 'No roles'}
+                      </p>
+                    </div>
+                    {member.is_admin && (
+                      <Badge color="warning" size="sm">Admin</Badge>
+                    )}
+                  </div>
+                ))}
+                {members.length > 6 && (
+                  <p className="text-xs text-surface-400 text-center pt-1">
+                    +{members.length - 6} more members
+                  </p>
+                )}
+              </div>
+            )}
+          </Card.Body>
+        </Card>
+      </div>
+
+      {/* Roles by category */}
+      {Object.keys(rolesByCategory).length > 0 && (
+        <div className="lg:col-span-3">
+          <Card>
+            <Card.Header>
+              <Card.Title>Roles by Category</Card.Title>
+            </Card.Header>
+            <Card.Body>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {Object.entries(rolesByCategory).map(([category, catRoles]) => (
+                  <div
+                    key={category}
+                    className="p-3 rounded-lg bg-surface-50 border border-surface-100"
+                  >
+                    <p className="text-xs font-semibold text-surface-500 uppercase tracking-wider mb-2">
+                      {category}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {catRoles.map((role) => (
+                        <Badge key={role.id} color="primary" size="sm">
+                          {role.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card.Body>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
