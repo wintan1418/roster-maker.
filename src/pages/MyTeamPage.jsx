@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Send, Users } from 'lucide-react';
+import { MessageSquare, Send, Users, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import useAuthStore from '@/stores/authStore';
 import Avatar from '@/components/ui/Avatar';
@@ -13,9 +13,10 @@ export default function MyTeamPage() {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showMembers, setShowMembers] = useState(false);
   const bottomRef = useRef(null);
+  const inputRef = useRef(null);
 
-  // Load user's teams on mount
   useEffect(() => {
     if (!supabase || !user) return;
     supabase
@@ -30,7 +31,6 @@ export default function MyTeamPage() {
       });
   }, [user]);
 
-  // Load members + messages and subscribe to realtime when team changes
   useEffect(() => {
     if (!supabase || !selectedTeamId) return;
 
@@ -69,7 +69,6 @@ export default function MyTeamPage() {
     return () => supabase.removeChannel(channel);
   }, [selectedTeamId]);
 
-  // Scroll to bottom on new message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -87,6 +86,7 @@ export default function MyTeamPage() {
       content,
     });
     setSending(false);
+    inputRef.current?.focus();
   }
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
@@ -110,15 +110,22 @@ export default function MyTeamPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4" style={{ height: 'calc(100vh - 6rem)' }}>
-      {/* Team tabs */}
+    /*
+     * We negate the parent <main> padding so the chat fills edge-to-edge on mobile,
+     * then use dvh for reliable height on mobile browsers (accounts for address bar).
+     */
+    <div
+      className="-m-4 sm:-m-6 lg:-m-8 flex flex-col"
+      style={{ height: 'calc(100dvh - 4rem)' }}
+    >
+      {/* Team tabs — only shown when in multiple teams */}
       {teams.length > 1 && (
-        <div className="flex gap-2 flex-wrap shrink-0">
+        <div className="flex gap-2 flex-wrap px-4 pt-3 shrink-0">
           {teams.map((t) => (
             <button
               key={t.id}
               onClick={() => setSelectedTeamId(t.id)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
                 selectedTeamId === t.id
                   ? 'bg-primary-600 text-white'
                   : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
@@ -130,9 +137,10 @@ export default function MyTeamPage() {
         </div>
       )}
 
-      <div className="flex gap-4 flex-1 min-h-0">
-        {/* Members sidebar */}
-        <div className="w-52 shrink-0 bg-white rounded-2xl border border-surface-200 flex flex-col overflow-hidden">
+      <div className="flex flex-1 min-h-0 gap-0 md:gap-4 md:p-4 lg:p-6">
+
+        {/* ── Desktop members sidebar ──────────────────────── */}
+        <div className="hidden md:flex w-52 shrink-0 flex-col bg-white rounded-2xl border border-surface-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-surface-100 shrink-0">
             <p className="text-xs font-semibold text-surface-500 uppercase tracking-wider">
               Members · {members.length}
@@ -148,18 +156,44 @@ export default function MyTeamPage() {
           </div>
         </div>
 
-        {/* Chat area */}
-        <div className="flex-1 flex flex-col bg-white rounded-2xl border border-surface-200 min-h-0 overflow-hidden">
-          {/* Header */}
-          <div className="px-4 py-3 border-b border-surface-100 flex items-center gap-2 shrink-0">
-            <MessageSquare size={16} className="text-primary-500" />
-            <h2 className="font-semibold text-surface-900">{selectedTeam?.name}</h2>
+        {/* ── Chat panel ──────────────────────────────────────── */}
+        <div className="flex-1 flex flex-col bg-white md:rounded-2xl md:border border-surface-200 min-h-0 overflow-hidden">
+
+          {/* Chat header */}
+          <div className="px-4 py-3 border-b border-surface-100 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2">
+              <MessageSquare size={16} className="text-primary-500" />
+              <span className="font-semibold text-surface-900 text-sm">{selectedTeam?.name}</span>
+            </div>
+            {/* Members toggle — mobile only */}
+            <button
+              className="md:hidden flex items-center gap-1 text-xs text-surface-500 hover:text-surface-700 cursor-pointer"
+              onClick={() => setShowMembers((v) => !v)}
+            >
+              <Users size={14} />
+              {members.length}
+              {showMembers ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
           </div>
 
+          {/* Mobile members strip */}
+          {showMembers && (
+            <div className="md:hidden flex gap-4 overflow-x-auto px-4 py-3 border-b border-surface-100 bg-surface-50 shrink-0">
+              {members.map((m) => (
+                <div key={m.id} className="flex flex-col items-center gap-1 shrink-0">
+                  <Avatar name={m.name} src={m.avatar_url} size="sm" />
+                  <span className="text-[10px] text-surface-500 w-12 truncate text-center">
+                    {m.name.split(' ')[0]}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
             {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full text-center text-surface-400">
+              <div className="flex flex-col items-center justify-center h-full text-center text-surface-400 py-16">
                 <MessageSquare size={32} className="mb-2 opacity-20" />
                 <p className="text-sm">No messages yet. Say hello!</p>
               </div>
@@ -167,14 +201,16 @@ export default function MyTeamPage() {
             {messages.map((msg) => {
               const isMe = msg.user_id === user.id;
               return (
-                <div key={msg.id} className={`flex gap-2.5 ${isMe ? 'flex-row-reverse' : ''}`}>
-                  <Avatar name={msg.author_name} size="sm" />
-                  <div className={`flex flex-col gap-0.5 max-w-xs lg:max-w-md ${isMe ? 'items-end' : 'items-start'}`}>
+                <div key={msg.id} className={`flex gap-2 ${isMe ? 'flex-row-reverse' : ''}`}>
+                  <div className="shrink-0 mt-1">
+                    <Avatar name={msg.author_name} size="sm" />
+                  </div>
+                  <div className={`flex flex-col gap-0.5 min-w-0 max-w-[75%] ${isMe ? 'items-end' : 'items-start'}`}>
                     {!isMe && (
-                      <span className="text-xs text-surface-400 px-1">{msg.author_name}</span>
+                      <span className="text-[11px] text-surface-400 px-1 font-medium">{msg.author_name}</span>
                     )}
                     <div
-                      className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                      className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
                         isMe
                           ? 'bg-primary-600 text-white rounded-tr-sm'
                           : 'bg-surface-100 text-surface-800 rounded-tl-sm'
@@ -193,17 +229,21 @@ export default function MyTeamPage() {
           </div>
 
           {/* Input */}
-          <form onSubmit={sendMessage} className="p-3 border-t border-surface-100 flex gap-2 shrink-0">
+          <form
+            onSubmit={sendMessage}
+            className="flex gap-2 px-3 py-3 border-t border-surface-100 shrink-0 bg-white"
+          >
             <input
+              ref={inputRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Type a message..."
-              className="flex-1 px-4 py-2 rounded-xl border border-surface-200 text-sm text-surface-800 placeholder-surface-400 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100"
+              placeholder="Message..."
+              className="flex-1 px-4 py-2.5 rounded-xl border border-surface-200 text-sm text-surface-800 placeholder-surface-400 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100"
             />
             <button
               type="submit"
               disabled={!text.trim() || sending}
-              className="p-2.5 rounded-xl bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40 transition-colors cursor-pointer"
+              className="p-2.5 rounded-xl bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40 transition-colors cursor-pointer shrink-0"
             >
               <Send size={16} />
             </button>
