@@ -1,19 +1,27 @@
 // Supabase Edge Function: send-roster-emails
-// Sends personalized roster emails with PNG + PDF attachments via Gmail SMTP.
+// Sends personalized roster emails via Brevo (Sendinblue) transactional email API.
 // Deploy: npx supabase functions deploy send-roster-emails
-// Secrets: GMAIL_USER, GMAIL_APP_PASSWORD, FROM_EMAIL, APP_URL
-
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import nodemailer from 'npm:nodemailer@6';
+//
+// Secrets required:
+//   BREVO_API_KEY   — Your Brevo API key (Account > SMTP & API > API Keys)
+//
+// Optional secrets:
+//   FROM_EMAIL      — Sender address, e.g. "RosterFlow <noreply@yourdomain.com>"
+//                     Defaults to your verified Brevo sender address
+//   FROM_NAME       — Sender display name (default: "RosterFlow")
+//   APP_URL         — Your app URL (default: https://rosterflow-bice.vercel.app)
+//
+// Set secrets:
+//   npx supabase secrets set BREVO_API_KEY=xkeysib-...
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const GMAIL_USER = Deno.env.get('GMAIL_USER') ?? '';
-const GMAIL_APP_PASSWORD = Deno.env.get('GMAIL_APP_PASSWORD') ?? '';
-const FROM_EMAIL = Deno.env.get('FROM_EMAIL') ?? `RosterFlow <${GMAIL_USER}>`;
+const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY') ?? '';
+const FROM_EMAIL = Deno.env.get('FROM_EMAIL') ?? '';
+const FROM_NAME = Deno.env.get('FROM_NAME') ?? 'RosterFlow';
 const APP_URL = Deno.env.get('APP_URL') ?? 'https://rosterflow-bice.vercel.app';
 
 interface Member { id: string; user_id: string; name: string; email?: string; phone?: string; }
@@ -202,20 +210,56 @@ function buildEmailHtml({
 </body></html>`;
 }
 
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
-  auth: {
-    user: GMAIL_USER,
-    pass: GMAIL_APP_PASSWORD,
-  },
-});
+async function sendViaBrevo(
+  toEmail: string,
+  toName: string,
+  subject: string,
+  html: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const body: Record<string, unknown> = {
+    to: [{ email: toEmail, name: toName }],
+    subject,
+    htmlContent: html,
+    sender: {
+      name: FROM_NAME,
+      ...(FROM_EMAIL ? { email: FROM_EMAIL } : {}),
+    },
+  };
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': BREVO_API_KEY,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    const msg = errBody?.message || errBody?.error || `HTTP ${res.status}`;
+    return { ok: false, error: msg };
+  }
+  return { ok: true };
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
+    if (!BREVO_API_KEY) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'BREVO_API_KEY secret is not set. ' +
+            'Go to your Brevo account → Settings → SMTP & API → API Keys → Generate a new API key. ' +
+            'Then run: npx supabase secrets set BREVO_API_KEY=xkeysib-... and redeploy the function.',
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const {
       roster,
       events = [],
@@ -223,17 +267,8 @@ Deno.serve(async (req) => {
       assignments = {},
       members = [],
       songs_by_event: songsByEvent = {},
-      png_base64,
-      pdf_base64,
       share_link: shareLink = '',
     } = await req.json();
-
-    if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
-      return new Response(
-        JSON.stringify({ error: 'GMAIL_USER and GMAIL_APP_PASSWORD secrets not configured.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
 
     // Build per-member assignment map
     const memberAssignments: Record<string, Array<{ event: RosterEvent; role: Role }>> = {};
@@ -266,41 +301,20 @@ Deno.serve(async (req) => {
         shareLink,
       });
 
-      const attachments = [];
-      if (png_base64) {
-        attachments.push({
-          filename: `${(roster.title || 'roster').replace(/\s+/g, '_')}.png`,
-          content: png_base64,
-          encoding: 'base64',
-          contentType: 'image/png',
-        });
-      }
-      if (pdf_base64) {
-        attachments.push({
-          filename: `${(roster.title || 'roster').replace(/\s+/g, '_')}.pdf`,
-          content: pdf_base64,
-          encoding: 'base64',
-          contentType: 'application/pdf',
-        });
-      }
+      const subject = `📋 ${roster.team_name || 'Team'} Roster: ${roster.title} — You're Scheduled!`;
+      const { ok, error } = await sendViaBrevo(member.email, member.name, subject, html);
 
-      try {
-        await transporter.sendMail({
-          from: FROM_EMAIL,
-          to: member.email,
-          subject: `📋 ${roster.team_name || 'Team'} Roster: ${roster.title} — You're Scheduled!`,
-          html,
-          attachments,
-        });
+      if (ok) {
         results.push({ email: member.email, status: 'sent' });
-      } catch (mailErr) {
-        console.error(`Failed to send to ${member.email}:`, mailErr);
-        results.push({ email: member.email, status: 'error', error: (mailErr as Error).message });
+      } else {
+        console.error(`Failed to send to ${member.email}:`, error);
+        results.push({ email: member.email, status: 'error', error });
       }
     }
 
+    const sentCount = results.filter(r => r.status === 'sent').length;
     return new Response(
-      JSON.stringify({ success: true, sent: results.filter(r => r.status === 'sent').length, results }),
+      JSON.stringify({ success: true, sent: sentCount, results }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (err) {
