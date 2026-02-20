@@ -1,8 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Send, Users, ChevronDown, ChevronUp } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { MessageSquare, Send, Users, ChevronDown, ChevronUp, Smile } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import useAuthStore from '@/stores/authStore';
 import Avatar from '@/components/ui/Avatar';
+
+const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
+
+const EMOJIS = [
+  '😊','😂','🥰','😍','🤩','😎','😄','😁','🤗','😅','😭','🤣',
+  '🙏','👍','❤️','🔥','✨','🎉','🎊','🥳','💪','💯','🌟','⭐',
+  '👋','🫶','🤝','🙌','👏','🕊️','🎵','🎶','🎤','🎸','🥁','🎹',
+  '📅','📌','💫','🌈','⚡','🎁','😇','🫡','💬','📢','🗓️','🎯',
+];
 
 export default function MyTeamPage() {
   const { user, profile } = useAuthStore();
@@ -14,8 +24,11 @@ export default function MyTeamPage() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showMembers, setShowMembers] = useState(false);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [emojiPos, setEmojiPos] = useState({ bottom: 0, left: 0 });
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
+  const emojiButtonRef = useRef(null);
 
   useEffect(() => {
     if (!supabase || !user) return;
@@ -89,6 +102,25 @@ export default function MyTeamPage() {
     inputRef.current?.focus();
   }
 
+  function openEmoji() {
+    if (showEmoji) { setShowEmoji(false); return; }
+    const btn = emojiButtonRef.current;
+    if (btn) {
+      const rect = btn.getBoundingClientRect();
+      setEmojiPos({
+        bottom: window.innerHeight - rect.top + 8,
+        left: Math.min(rect.left, window.innerWidth - 268),
+      });
+    }
+    setShowEmoji(true);
+  }
+
+  function pickEmoji(emoji) {
+    setText((t) => t + emoji);
+    setShowEmoji(false);
+    inputRef.current?.focus();
+  }
+
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
 
   if (loading) {
@@ -110,15 +142,11 @@ export default function MyTeamPage() {
   }
 
   return (
-    /*
-     * We negate the parent <main> padding so the chat fills edge-to-edge on mobile,
-     * then use dvh for reliable height on mobile browsers (accounts for address bar).
-     */
     <div
       className="-m-4 sm:-m-6 lg:-m-8 flex flex-col"
       style={{ height: 'calc(100dvh - 4rem)' }}
     >
-      {/* Team tabs — only shown when in multiple teams */}
+      {/* Team tabs */}
       {teams.length > 1 && (
         <div className="flex gap-2 flex-wrap px-4 pt-3 shrink-0">
           {teams.map((t) => (
@@ -139,7 +167,7 @@ export default function MyTeamPage() {
 
       <div className="flex flex-1 min-h-0 gap-0 md:gap-4 md:p-4 lg:p-6">
 
-        {/* ── Desktop members sidebar ──────────────────────── */}
+        {/* Desktop members sidebar */}
         <div className="hidden md:flex w-52 shrink-0 flex-col bg-white rounded-2xl border border-surface-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-surface-100 shrink-0">
             <p className="text-xs font-semibold text-surface-500 uppercase tracking-wider">
@@ -156,16 +184,15 @@ export default function MyTeamPage() {
           </div>
         </div>
 
-        {/* ── Chat panel ──────────────────────────────────────── */}
+        {/* Chat panel */}
         <div className="flex-1 flex flex-col bg-white md:rounded-2xl md:border border-surface-200 min-h-0 overflow-hidden">
 
-          {/* Chat header */}
+          {/* Header */}
           <div className="px-4 py-3 border-b border-surface-100 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <MessageSquare size={16} className="text-primary-500" />
               <span className="font-semibold text-surface-900 text-sm">{selectedTeam?.name}</span>
             </div>
-            {/* Members toggle — mobile only */}
             <button
               className="md:hidden flex items-center gap-1 text-xs text-surface-500 hover:text-surface-700 cursor-pointer"
               onClick={() => setShowMembers((v) => !v)}
@@ -199,6 +226,18 @@ export default function MyTeamPage() {
               </div>
             )}
             {messages.map((msg) => {
+              // System / welcome messages
+              if (msg.user_id === SYSTEM_USER) {
+                return (
+                  <div key={msg.id} className="flex justify-center my-2">
+                    <div className="bg-primary-50 border border-primary-100 rounded-2xl px-4 py-3 max-w-sm text-center">
+                      <p className="text-[11px] font-semibold text-primary-600 uppercase tracking-wide mb-1">RosterFlow</p>
+                      <p className="text-sm text-surface-700 whitespace-pre-line leading-relaxed">{msg.content}</p>
+                    </div>
+                  </div>
+                );
+              }
+
               const isMe = msg.user_id === user.id;
               return (
                 <div key={msg.id} className={`flex gap-2 ${isMe ? 'flex-row-reverse' : ''}`}>
@@ -210,7 +249,7 @@ export default function MyTeamPage() {
                       <span className="text-[11px] text-surface-400 px-1 font-medium">{msg.author_name}</span>
                     )}
                     <div
-                      className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
+                      className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words whitespace-pre-wrap ${
                         isMe
                           ? 'bg-primary-600 text-white rounded-tr-sm'
                           : 'bg-surface-100 text-surface-800 rounded-tl-sm'
@@ -231,25 +270,61 @@ export default function MyTeamPage() {
           {/* Input */}
           <form
             onSubmit={sendMessage}
-            className="flex gap-2 px-3 py-3 border-t border-surface-100 shrink-0 bg-white"
+            className="flex items-center gap-2 px-3 py-3 border-t border-surface-100 shrink-0 bg-white"
           >
+            {/* Emoji button */}
+            <button
+              ref={emojiButtonRef}
+              type="button"
+              onClick={openEmoji}
+              className="shrink-0 p-2 rounded-xl text-surface-400 hover:text-surface-600 hover:bg-surface-100 transition-colors cursor-pointer"
+            >
+              <Smile size={20} />
+            </button>
+
             <input
               ref={inputRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { sendMessage(e); } }}
               placeholder="Message..."
               className="flex-1 px-4 py-2.5 rounded-xl border border-surface-200 text-sm text-surface-800 placeholder-surface-400 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100"
             />
             <button
               type="submit"
               disabled={!text.trim() || sending}
-              className="p-2.5 rounded-xl bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40 transition-colors cursor-pointer shrink-0"
+              className="shrink-0 p-2.5 rounded-xl bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40 transition-colors cursor-pointer"
             >
               <Send size={16} />
             </button>
           </form>
         </div>
       </div>
+
+      {/* Emoji picker portal */}
+      {showEmoji && createPortal(
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setShowEmoji(false)} />
+          <div
+            className="fixed z-50 bg-white border border-surface-200 rounded-2xl shadow-xl p-3"
+            style={{ bottom: emojiPos.bottom, left: emojiPos.left, width: 264 }}
+          >
+            <div className="grid grid-cols-8 gap-1">
+              {EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => pickEmoji(emoji)}
+                  className="text-xl p-1.5 hover:bg-surface-100 rounded-lg transition-colors cursor-pointer leading-none"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
     </div>
   );
 }
