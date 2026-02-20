@@ -13,6 +13,7 @@ import {
     AlertCircle,
     X,
     Send,
+    RefreshCw,
 } from 'lucide-react';
 import { cn, formatDate } from '@/lib/utils';
 import useAuthStore from '@/stores/authStore';
@@ -180,6 +181,7 @@ export default function MemberSchedulePage() {
     const [personalAssignments, setPersonalAssignments] = useState([]);
     const [generalRoster, setGeneralRoster] = useState(null);
     const [swapDuty, setSwapDuty] = useState(null);
+    const [refreshKey, setRefreshKey] = useState(0);
 
     // ── Fetch teams ───────────────────────────────────────────────────────
     useEffect(() => {
@@ -382,7 +384,7 @@ export default function MemberSchedulePage() {
         }
 
         fetchAssignments();
-    }, [user, selectedTeam]);
+    }, [user, selectedTeam, refreshKey]);
 
     const now = new Date().toISOString().split('T')[0];
     const upcoming = personalAssignments.filter((a) => a.date >= now);
@@ -435,6 +437,17 @@ export default function MemberSchedulePage() {
                             </select>
                         </div>
                     )}
+
+                    {/* Refresh */}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        iconLeft={RefreshCw}
+                        onClick={() => setRefreshKey((k) => k + 1)}
+                        loading={loading}
+                    >
+                        Refresh
+                    </Button>
 
                     {/* Export Calendar */}
                     <Button

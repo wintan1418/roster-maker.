@@ -136,7 +136,7 @@ export default function RosterPublish({
         songsByEvent[s.roster_event_id].push({ title: s.title, artist: s.artist, key: s.key });
       }
 
-      const { error: fnErr } = await supabase.functions.invoke('send-roster-emails', {
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke('send-roster-emails', {
         body: {
           roster: {
             title: roster.title,
@@ -165,8 +165,29 @@ export default function RosterPublish({
           share_link: computedShareLink || shareLink,
         },
       });
-      if (fnErr) toast.error('Email sending failed: ' + fnErr.message);
-      else toast.success('Emails sent to all assigned members!', { icon: '📧' });
+
+      if (fnErr) {
+        // Try to read the actual error detail from the response body
+        let errDetail = fnErr.message;
+        try {
+          const body = await fnErr.context?.json?.();
+          if (body?.error) errDetail = body.error;
+        } catch { /* ignore parse errors */ }
+        toast.error('Email failed: ' + errDetail, { duration: 6000 });
+        return;
+      }
+
+      const sentCount = fnData?.sent ?? 0;
+      if (sentCount === 0) {
+        const smtpErrors = (fnData?.results ?? []).filter((r) => r.status === 'error');
+        if (smtpErrors.length > 0) {
+          toast.error('SMTP error: ' + smtpErrors[0].error, { duration: 8000 });
+        } else {
+          toast.error('No emails sent — assigned members may not have email addresses on file.', { duration: 6000 });
+        }
+      } else {
+        toast.success(`Emails sent to ${sentCount} member(s)!`, { icon: '📧' });
+      }
     } catch (emailErr) {
       console.error('Email sending failed:', emailErr);
       toast.error('Failed to send emails. Please try again.');
