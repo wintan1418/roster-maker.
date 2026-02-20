@@ -40,8 +40,12 @@ export default function TeamDetailPage() {
 
   const loadInvitations = useCallback(async () => {
     if (!teamId) return;
-    const { data } = await fetchTeamInvitations(teamId);
-    setInvitations(data ?? []);
+    try {
+      const { data } = await fetchTeamInvitations(teamId);
+      setInvitations(data ?? []);
+    } catch (err) {
+      console.error('Failed to load invitations:', err);
+    }
   }, [teamId, fetchTeamInvitations]);
 
   useEffect(() => {
