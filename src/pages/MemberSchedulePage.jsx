@@ -359,7 +359,7 @@ export default function MemberSchedulePage() {
                             const member = memberMap[value.memberId];
                             generalAssignments.push({
                                 id: cellKey,
-                                roster_event_id: eventId,
+                                roster_event_id: event.id,
                                 user: member?.profile
                                     ? { id: member.profile.id, full_name: member.profile.full_name, email: member.profile.email }
                                     : null,
