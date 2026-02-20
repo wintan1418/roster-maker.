@@ -21,6 +21,7 @@ export default function RosterCell({
   onToggleManual,      // (eventId, roleId) => void
   assignedToEvent,     // Set of memberIds already assigned to this event
   members = [],        // all team members
+  hasConflict = false, // true when member is double-booked on this event
   readOnly = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -123,9 +124,11 @@ export default function RosterCell({
           readOnly
             ? 'cursor-default'
             : 'cursor-pointer hover:ring-2 hover:ring-primary-300 active:ring-primary-400',
-          member
-            ? 'bg-sky-50/70 hover:bg-sky-100/80'
-            : 'bg-amber-50/50 hover:bg-amber-100/60',
+          hasConflict
+            ? 'bg-red-50 hover:bg-red-100/80 ring-1 ring-red-300'
+            : member
+              ? 'bg-sky-50/70 hover:bg-sky-100/80'
+              : 'bg-amber-50/50 hover:bg-amber-100/60',
           isOpen && 'ring-2 ring-primary-400 bg-primary-50'
         )}
       >

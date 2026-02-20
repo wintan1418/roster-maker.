@@ -14,6 +14,10 @@ import {
   X,
   MoreVertical,
   ChevronDown,
+  Music,
+  CheckSquare,
+  Check,
+  AlertTriangle,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -22,6 +26,8 @@ import ShuffleButton from '@/components/roster/ShuffleButton';
 import RosterCell from '@/components/roster/RosterCell';
 import useShuffle from '@/hooks/useShuffle';
 import { formatDate } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
+import useAuthStore from '@/stores/authStore';
 
 /**
  * RosterGrid - The main roster grid editor.
@@ -49,6 +55,10 @@ export default function RosterGrid({
 }) {
   const [assignments, setAssignments] = useState(initialAssignments);
   const [hasChanges, setHasChanges] = useState(false);
+  const [songsEvent, setSongsEvent] = useState(null);   // event for setlist modal
+  const [attendanceEvent, setAttendanceEvent] = useState(null); // event for attendance modal
+  const { orgRole } = useAuthStore();
+  const isAdmin = orgRole === 'super_admin' || orgRole === 'team_admin';
 
   const { shuffle, clearAutoAssignments, isShuffling } = useShuffle();
 
@@ -71,6 +81,28 @@ export default function RosterGrid({
     }
     return counts;
   }, [assignments]);
+
+  // Detect conflicts: same member assigned to multiple roles on same event
+  const conflictingCells = useMemo(() => {
+    const conflicting = new Set();
+    const byEvent = {};
+    for (const [key, value] of Object.entries(assignments)) {
+      if (!value?.memberId) continue;
+      const dashIdx = key.indexOf('-');
+      const eventId = key.substring(0, dashIdx);
+      if (!byEvent[eventId]) byEvent[eventId] = {};
+      if (!byEvent[eventId][value.memberId]) byEvent[eventId][value.memberId] = [];
+      byEvent[eventId][value.memberId].push(key);
+    }
+    for (const eventMap of Object.values(byEvent)) {
+      for (const keys of Object.values(eventMap)) {
+        if (keys.length > 1) keys.forEach((k) => conflicting.add(k));
+      }
+    }
+    return conflicting;
+  }, [assignments]);
+
+  const conflictCount = conflictingCells.size / 2; // pairs
 
   // Calculate stats
   const stats = useMemo(() => {
@@ -268,6 +300,16 @@ export default function RosterGrid({
         </span>
       </div>
 
+      {/* Conflict warning */}
+      {conflictingCells.size > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+          <Info size={15} className="shrink-0 text-red-500" />
+          <span>
+            <strong>Conflict detected:</strong> {Math.ceil(conflictingCells.size / 2)} member{Math.ceil(conflictingCells.size / 2) !== 1 ? 's are' : ' is'} assigned to multiple roles on the same date. Highlighted in red.
+          </span>
+        </div>
+      )}
+
       {/* Shuffling overlay */}
       {isShuffling && (
         <div className="flex items-center justify-center py-3">
@@ -357,6 +399,25 @@ export default function RosterGrid({
                             {event.time}
                           </span>
                         )}
+                        {/* Event action buttons */}
+                        <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => setSongsEvent(event)}
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] text-violet-600 bg-violet-50 hover:bg-violet-100 cursor-pointer transition-colors"
+                            title="Manage setlist"
+                          >
+                            <Music size={9} /> Songs
+                          </button>
+                          {isAdmin && event.date < new Date().toISOString().split('T')[0] && (
+                            <button
+                              onClick={() => setAttendanceEvent(event)}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] text-emerald-600 bg-emerald-50 hover:bg-emerald-100 cursor-pointer transition-colors"
+                              title="Mark attendance"
+                            >
+                              <CheckSquare size={9} /> Attendance
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {!readOnly && onRemoveEvent && (
                         <button
@@ -388,6 +449,7 @@ export default function RosterGrid({
                           onRemove={handleRemove}
                           onToggleManual={handleToggleManual}
                           assignedToEvent={assignedToEvent}
+                          hasConflict={conflictingCells.has(cellKey)}
                           readOnly={readOnly}
                         />
                       </td>
@@ -428,6 +490,259 @@ export default function RosterGrid({
             Click a column header to add/remove role columns.
           </span>
         )}
+      </div>
+
+      {/* Setlist Modal (Feature 6) */}
+      {songsEvent && (
+        <SetlistModal
+          event={songsEvent}
+          teamId={roster.team_id}
+          onClose={() => setSongsEvent(null)}
+        />
+      )}
+
+      {/* Attendance Modal (Feature 4) */}
+      {attendanceEvent && (
+        <AttendanceModal
+          event={attendanceEvent}
+          teamId={roster.team_id}
+          assignments={assignments}
+          members={members}
+          onClose={() => setAttendanceEvent(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Setlist Modal (Feature 6) ─────────────────────────────────────────────
+
+function SetlistModal({ event, teamId, onClose }) {
+  const [songs, setSongs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState('');
+  const [artist, setArtist] = useState('');
+  const [key, setKey] = useState('');
+  const [adding, setAdding] = useState(false);
+  const { user } = useAuthStore();
+
+  useEffect(() => {
+    if (!supabase || !event?.id) return;
+    setLoading(true);
+    supabase.from('event_songs')
+      .select('*')
+      .eq('roster_event_id', event.id)
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => { setSongs(data ?? []); setLoading(false); });
+  }, [event?.id]);
+
+  async function handleAdd(e) {
+    e.preventDefault();
+    if (!title.trim() || !supabase) return;
+    setAdding(true);
+    const { data, error } = await supabase.from('event_songs').insert({
+      roster_event_id: event.id,
+      team_id: teamId,
+      title: title.trim(),
+      artist: artist.trim() || null,
+      key: key.trim() || null,
+      sort_order: songs.length,
+      added_by: user?.id,
+    }).select().single();
+    if (error) { toast.error('Failed to add song'); }
+    else { setSongs((prev) => [...prev, data]); setTitle(''); setArtist(''); setKey(''); }
+    setAdding(false);
+  }
+
+  async function handleDelete(id) {
+    await supabase.from('event_songs').delete().eq('id', id);
+    setSongs((prev) => prev.filter((s) => s.id !== id));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-surface-900 flex items-center gap-2">
+              <Music size={18} className="text-violet-500" /> Setlist
+            </h3>
+            <p className="text-xs text-surface-500 mt-0.5">{event.name} · {formatDate(event.date, 'EEE, MMM d')}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-100 cursor-pointer"><X size={18} className="text-surface-500" /></button>
+        </div>
+
+        {/* Song list */}
+        <div className="flex-1 overflow-y-auto mb-4 space-y-1.5 min-h-0">
+          {loading ? (
+            <p className="text-sm text-surface-400 text-center py-4">Loading...</p>
+          ) : songs.length === 0 ? (
+            <p className="text-sm text-surface-400 text-center py-4">No songs yet. Add one below.</p>
+          ) : (
+            songs.map((s, i) => (
+              <div key={s.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-surface-50 border border-surface-100">
+                <span className="text-xs font-bold text-surface-300 w-4 text-center">{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-surface-800 truncate">{s.title}</p>
+                  <p className="text-xs text-surface-400 truncate">
+                    {s.artist && <span>{s.artist}</span>}
+                    {s.key && <span className="ml-1.5 font-mono text-violet-600">Key: {s.key}</span>}
+                  </p>
+                </div>
+                <button onClick={() => handleDelete(s.id)} className="p-1 rounded hover:bg-red-50 text-surface-300 hover:text-red-500 cursor-pointer">
+                  <X size={13} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Add song form */}
+        <form onSubmit={handleAdd} className="border-t border-surface-200 pt-4 space-y-2">
+          <input
+            value={title} onChange={(e) => setTitle(e.target.value)}
+            placeholder="Song title *"
+            className="w-full px-3 py-2 text-sm rounded-lg border border-surface-200 bg-surface-50 text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-violet-300"
+          />
+          <div className="flex gap-2">
+            <input
+              value={artist} onChange={(e) => setArtist(e.target.value)}
+              placeholder="Artist (optional)"
+              className="flex-1 px-3 py-2 text-sm rounded-lg border border-surface-200 bg-surface-50 text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-violet-300"
+            />
+            <input
+              value={key} onChange={(e) => setKey(e.target.value)}
+              placeholder="Key"
+              className="w-20 px-3 py-2 text-sm rounded-lg border border-surface-200 bg-surface-50 text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-violet-300"
+            />
+          </div>
+          <button type="submit" disabled={!title.trim() || adding}
+            className="w-full py-2 rounded-lg bg-violet-500 text-white text-sm font-medium disabled:opacity-40 hover:bg-violet-600 transition-colors cursor-pointer flex items-center justify-center gap-1.5">
+            <Plus size={15} /> Add Song
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Attendance Modal (Feature 4) ──────────────────────────────────────────
+
+const ATTENDANCE_STATUS = [
+  { value: 'present', label: 'Present', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+  { value: 'absent', label: 'Absent', color: 'text-red-700 bg-red-50 border-red-200' },
+  { value: 'excused', label: 'Excused', color: 'text-amber-700 bg-amber-50 border-amber-200' },
+];
+
+function AttendanceModal({ event, teamId, assignments, members, onClose }) {
+  const { user } = useAuthStore();
+  // Get members assigned to this event
+  const eventMembers = useMemo(() => {
+    const ids = new Set();
+    for (const [key, val] of Object.entries(assignments)) {
+      if (key.startsWith(event.id + '-') && val?.memberId) ids.add(val.memberId);
+    }
+    return members.filter((m) => ids.has(m.id) || ids.has(m.user_id));
+  }, [event.id, assignments, members]);
+
+  const [records, setRecords] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!supabase || !event?.id) return;
+    supabase.from('attendance_records')
+      .select('*')
+      .eq('roster_event_id', event.id)
+      .then(({ data }) => {
+        const map = {};
+        for (const r of (data ?? [])) map[r.user_id] = r.status;
+        setRecords(map);
+        setLoading(false);
+      });
+  }, [event?.id]);
+
+  function setStatus(userId, status) {
+    setRecords((prev) => ({ ...prev, [userId]: status }));
+  }
+
+  async function handleSave() {
+    if (!supabase) return;
+    setSaving(true);
+    try {
+      const upserts = eventMembers.map((m) => ({
+        roster_event_id: event.id,
+        user_id: m.user_id || m.id,
+        team_id: teamId,
+        status: records[m.user_id || m.id] || 'present',
+        marked_by: user?.id,
+        marked_at: new Date().toISOString(),
+      }));
+      const { error } = await supabase.from('attendance_records')
+        .upsert(upserts, { onConflict: 'roster_event_id,user_id' });
+      if (error) throw error;
+      toast.success('Attendance saved!');
+      onClose();
+    } catch (err) {
+      toast.error(err.message || 'Failed to save attendance');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-surface-900 flex items-center gap-2">
+              <CheckSquare size={18} className="text-emerald-500" /> Attendance
+            </h3>
+            <p className="text-xs text-surface-500 mt-0.5">{event.name} · {formatDate(event.date, 'EEE, MMM d')}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-100 cursor-pointer"><X size={18} className="text-surface-500" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto mb-4 space-y-2 min-h-0">
+          {loading ? (
+            <p className="text-sm text-surface-400 text-center py-4">Loading...</p>
+          ) : eventMembers.length === 0 ? (
+            <p className="text-sm text-surface-400 text-center py-4">No assigned members for this event.</p>
+          ) : (
+            eventMembers.map((m) => {
+              const uid = m.user_id || m.id;
+              const current = records[uid] || 'present';
+              return (
+                <div key={m.id} className="flex items-center gap-3 p-2.5 rounded-xl border border-surface-100 bg-surface-50">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-surface-800 truncate">{m.name}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {ATTENDANCE_STATUS.map((s) => (
+                      <button
+                        key={s.value}
+                        onClick={() => setStatus(uid, s.value)}
+                        className={clsx(
+                          'px-2 py-1 rounded-md text-xs font-medium border transition-all cursor-pointer',
+                          current === s.value ? s.color : 'text-surface-400 bg-white border-surface-200 hover:border-surface-300'
+                        )}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex gap-3 border-t border-surface-200 pt-4">
+          <Button variant="ghost" onClick={onClose} className="flex-1">Cancel</Button>
+          <Button variant="primary" onClick={handleSave} loading={saving} iconLeft={Check} className="flex-1">Save Attendance</Button>
+        </div>
       </div>
     </div>
   );

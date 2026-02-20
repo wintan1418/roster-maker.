@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   ShieldOff,
   Send,
+  Star,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatDate } from '@/lib/utils';
@@ -56,6 +57,7 @@ export default function TeamMemberManager({
   const [requestDeleteSubmitting, setRequestDeleteSubmitting] = useState(false);
   const [editRolesFor, setEditRolesFor] = useState(null);
   const [editRolesSelected, setEditRolesSelected] = useState([]);
+  const [editRolesRatings, setEditRolesRatings] = useState({}); // roleId → 1|2|3
   const [openMenu, setOpenMenu] = useState(null);
   const [invitesExpanded, setInvitesExpanded] = useState(true);
   const [resendingId, setResendingId] = useState(null);
@@ -82,17 +84,47 @@ export default function TeamMemberManager({
     setOpenMenu(null);
   }
 
-  function openEditRoles(member) {
+  async function openEditRoles(member) {
     setEditRolesFor(member);
     setEditRolesSelected(member.roles?.map((r) => r.id) || []);
     setOpenMenu(null);
+    // Load existing skill ratings
+    if (supabase && member.id) {
+      const { data } = await supabase
+        .from('member_skill_ratings')
+        .select('team_role_id, rating')
+        .eq('team_member_id', member.id);
+      const ratingsMap = {};
+      for (const r of (data ?? [])) ratingsMap[r.team_role_id] = r.rating;
+      setEditRolesRatings(ratingsMap);
+    }
   }
 
-  function handleSaveRoles() {
+  async function handleSaveRoles() {
     if (!editRolesFor) return;
     onUpdateMemberRoles?.(editRolesFor.id, editRolesSelected);
+
+    // Save skill ratings for selected roles
+    if (supabase && Object.keys(editRolesRatings).length > 0 && teamId) {
+      const upserts = Object.entries(editRolesRatings)
+        .filter(([roleId]) => editRolesSelected.includes(roleId))
+        .map(([roleId, rating]) => ({
+          team_member_id: editRolesFor.id,
+          team_role_id: roleId,
+          team_id: teamId,
+          rating,
+          rated_by: user?.id,
+          updated_at: new Date().toISOString(),
+        }));
+      if (upserts.length > 0) {
+        await supabase.from('member_skill_ratings')
+          .upsert(upserts, { onConflict: 'team_member_id,team_role_id' });
+      }
+    }
+
     toast.success(`Roles updated for ${editRolesFor.name}`);
     setEditRolesFor(null);
+    setEditRolesRatings({});
   }
 
   function toggleEditRole(roleId) {
@@ -525,14 +557,13 @@ export default function TeamMemberManager({
       {/* Edit Roles Modal */}
       <Modal
         open={!!editRolesFor}
-        onClose={() => setEditRolesFor(null)}
+        onClose={() => { setEditRolesFor(null); setEditRolesRatings({}); }}
         title={`Edit Roles for ${editRolesFor?.name || ''}`}
-        description="Select the roles this member can fill."
+        description="Select the roles this member can fill and rate their skill level (1–3 stars)."
         width="sm"
       >
         <div className="max-h-64 overflow-y-auto">
           {(() => {
-            // Group roles by category
             const grouped = {};
             for (const role of roles) {
               const cat = role.category || 'other';
@@ -544,26 +575,51 @@ export default function TeamMemberManager({
                 <p className="px-2 py-1 text-[10px] font-semibold text-surface-400 uppercase tracking-wider bg-surface-50 sticky top-0">
                   {category}
                 </p>
-                {catRoles.map((role) => (
-                  <label
-                    key={role.id}
-                    className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-surface-50 cursor-pointer transition-colors duration-150"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={editRolesSelected.includes(role.id)}
-                      onChange={() => toggleEditRole(role.id)}
-                      className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
-                    />
-                    <span className="text-sm text-surface-700">{role.name}</span>
-                  </label>
-                ))}
+                {catRoles.map((role) => {
+                  const isSelected = editRolesSelected.includes(role.id);
+                  const rating = editRolesRatings[role.id] || 2;
+                  return (
+                    <div
+                      key={role.id}
+                      className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-surface-50 transition-colors duration-150"
+                    >
+                      <label className="flex items-center gap-2 flex-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleEditRole(role.id)}
+                          className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                        />
+                        <span className="text-sm text-surface-700">{role.name}</span>
+                      </label>
+                      {/* Star rating — only show when role is selected */}
+                      {isSelected && (
+                        <div className="flex items-center gap-0.5">
+                          {[1, 2, 3].map((star) => (
+                            <button
+                              key={star}
+                              type="button"
+                              onClick={() => setEditRolesRatings((prev) => ({ ...prev, [role.id]: star }))}
+                              className="cursor-pointer transition-colors"
+                              title={`${star} star${star > 1 ? 's' : ''}`}
+                            >
+                              <Star
+                                size={14}
+                                className={star <= rating ? 'text-amber-400 fill-amber-400' : 'text-surface-200'}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ));
           })()}
         </div>
         <Modal.Footer>
-          <Button variant="secondary" onClick={() => setEditRolesFor(null)}>
+          <Button variant="secondary" onClick={() => { setEditRolesFor(null); setEditRolesRatings({}); }}>
             Cancel
           </Button>
           <Button onClick={handleSaveRoles}>Save Roles</Button>

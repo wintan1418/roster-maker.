@@ -9,6 +9,10 @@ import {
     ArrowRight,
     Music,
     Loader2,
+    Download,
+    AlertCircle,
+    X,
+    Send,
 } from 'lucide-react';
 import { cn, formatDate } from '@/lib/utils';
 import useAuthStore from '@/stores/authStore';
@@ -18,6 +22,154 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Avatar from '@/components/ui/Avatar';
 import EmptyState from '@/components/ui/EmptyState';
+import toast from 'react-hot-toast';
+
+// ── iCal generator ──────────────────────────────────────────────────────────
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function toICSDate(dateStr, timeStr) {
+    if (timeStr) {
+        const [h, m] = timeStr.split(':');
+        return `${dateStr.replace(/-/g, '')}T${pad2(h)}${pad2(m)}00`;
+    }
+    return `${dateStr.replace(/-/g, '')}`;
+}
+
+function generateICS(assignments) {
+    const lines = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//RosterFlow//My Schedule//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+    ];
+
+    for (const a of assignments) {
+        const dtStart = toICSDate(a.date, a.event?.event_time);
+        const isDateOnly = !a.event?.event_time;
+        lines.push('BEGIN:VEVENT');
+        lines.push(`UID:rosterflow-${a.id}@rosterflow.app`);
+        lines.push(`SUMMARY:${a.role} – ${a.eventLabel}`);
+        lines.push(`DTSTART${isDateOnly ? ';VALUE=DATE' : ''}:${dtStart}`);
+        if (!isDateOnly) {
+            // 2 hour duration default
+            const [h, m] = (a.event?.event_time || '00:00').split(':');
+            const endH = String(parseInt(h, 10) + 2).padStart(2, '0');
+            lines.push(`DTEND:${a.date.replace(/-/g, '')}T${endH}${pad2(m)}00`);
+        }
+        lines.push(`DESCRIPTION:${a.roster?.title || 'Roster'}`);
+        lines.push('END:VEVENT');
+    }
+
+    lines.push('END:VCALENDAR');
+    return lines.join('\r\n');
+}
+
+function downloadICS(content, filename) {
+    const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ── Swap Request Modal ───────────────────────────────────────────────────────
+
+function SwapRequestModal({ duty, teamId, userId, userName, onClose }) {
+    const [reason, setReason] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    async function handleSubmit(e) {
+        e.preventDefault();
+        if (!supabase) { toast.error('Not connected'); return; }
+        setSubmitting(true);
+        try {
+            // Insert swap request
+            const { error } = await supabase.from('swap_requests').insert({
+                assignment_id: duty.id,
+                roster_event_id: duty.event?.id,
+                team_id: teamId,
+                requester_id: userId,
+                requester_name: userName,
+                role_name: duty.role,
+                event_date: duty.date,
+                event_name: duty.eventLabel,
+                reason: reason.trim() || null,
+                status: 'open',
+            });
+            if (error) throw error;
+
+            // Post system message to team chat
+            const chatMsg = `🔄 Swap Request\n${userName} can't make it for:\n📅 ${formatDate(duty.date, 'EEE, MMM d')} – ${duty.eventLabel}\n🎵 Role: ${duty.role}${reason.trim() ? `\nReason: ${reason.trim()}` : ''}\n\nCan you cover this? Reply in chat!`;
+            await supabase.from('team_messages').insert({
+                team_id: teamId,
+                user_id: '00000000-0000-0000-0000-000000000000',
+                author_name: 'RosterFlow',
+                content: chatMsg,
+            });
+
+            toast.success('Swap request sent to your team!');
+            onClose();
+        } catch (err) {
+            toast.error(err.message || 'Failed to send swap request');
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-surface-900">Request a Swap</h3>
+                    <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-100 cursor-pointer">
+                        <X size={18} className="text-surface-500" />
+                    </button>
+                </div>
+
+                {/* Duty info */}
+                <div className="p-3 rounded-xl bg-surface-50 border border-surface-200 mb-4 text-sm">
+                    <p className="font-medium text-surface-800">{formatDate(duty.date, 'EEEE, MMMM d, yyyy')}</p>
+                    <p className="text-surface-500 mt-0.5">{duty.eventLabel}</p>
+                    <Badge color="primary" size="sm" className="mt-1.5">{duty.role}</Badge>
+                </div>
+
+                <p className="text-xs text-surface-500 mb-4">
+                    A notification will be posted in your team chat so someone can volunteer to cover this slot.
+                </p>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-semibold text-surface-600 mb-1.5">
+                            Reason <span className="text-surface-400 font-normal">(optional)</span>
+                        </label>
+                        <textarea
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            placeholder="e.g. Out of town, family commitment..."
+                            rows={3}
+                            className="w-full px-3 py-2 text-sm rounded-lg border border-surface-200 bg-surface-50 text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-300 resize-none"
+                        />
+                    </div>
+                    <div className="flex gap-3">
+                        <Button variant="ghost" type="button" onClick={onClose} className="flex-1">
+                            Cancel
+                        </Button>
+                        <Button variant="primary" type="submit" loading={submitting} iconLeft={Send} className="flex-1">
+                            Send Request
+                        </Button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+// ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MemberSchedulePage() {
     const { user, profile } = useAuthStore();
@@ -27,8 +179,9 @@ export default function MemberSchedulePage() {
     const [selectedTeam, setSelectedTeam] = useState(null);
     const [personalAssignments, setPersonalAssignments] = useState([]);
     const [generalRoster, setGeneralRoster] = useState(null);
+    const [swapDuty, setSwapDuty] = useState(null);
 
-    // ── Fetch teams the member belongs to ──────────────────────────────────
+    // ── Fetch teams ───────────────────────────────────────────────────────
     useEffect(() => {
         if (!supabase || !user) return;
 
@@ -70,14 +223,13 @@ export default function MemberSchedulePage() {
         fetchTeams();
     }, [user]);
 
-    // ── Fetch personal assignments when team changes ───────────────────────
+    // ── Fetch assignments ─────────────────────────────────────────────────
     useEffect(() => {
         if (!supabase || !user || !selectedTeam) return;
 
         async function fetchAssignments() {
             setLoading(true);
             try {
-                // Fetch published rosters for this team
                 const { data: rosters, error: rErr } = await supabase
                     .from('rosters')
                     .select('id, title, start_date, end_date, status')
@@ -91,7 +243,6 @@ export default function MemberSchedulePage() {
                 if (rosters && rosters.length > 0) {
                     const rosterIds = rosters.map((r) => r.id);
 
-                    // Fetch all events for these rosters
                     const { data: events, error: eErr } = await supabase
                         .from('roster_events')
                         .select('id, roster_id, event_name, event_date, event_time, sort_order')
@@ -102,7 +253,6 @@ export default function MemberSchedulePage() {
 
                     const eventIds = (events || []).map((e) => e.id);
 
-                    // Fetch MY assignments
                     const { data: myAssignments, error: aErr } = await supabase
                         .from('roster_assignments')
                         .select(`
@@ -116,7 +266,6 @@ export default function MemberSchedulePage() {
 
                     if (aErr) throw aErr;
 
-                    // Join the data
                     const enriched = (myAssignments || []).map((a) => {
                         const event = events.find((e) => e.id === a.roster_event_id);
                         const roster = rosters.find((r) => r.id === event?.roster_id);
@@ -130,11 +279,10 @@ export default function MemberSchedulePage() {
                         };
                     });
 
-                    // Sort by date ascending
                     enriched.sort((a, b) => new Date(a.date) - new Date(b.date));
                     setPersonalAssignments(enriched);
 
-                    // For "General" tab — fetch ALL assignments for the latest roster
+                    // General tab — latest roster
                     const latestRoster = rosters[0];
                     const latestEvents = (events || []).filter(
                         (e) => e.roster_id === latestRoster.id
@@ -170,10 +318,19 @@ export default function MemberSchedulePage() {
         fetchAssignments();
     }, [user, selectedTeam]);
 
-    // Split personal by upcoming vs past
     const now = new Date().toISOString().split('T')[0];
     const upcoming = personalAssignments.filter((a) => a.date >= now);
     const past = personalAssignments.filter((a) => a.date < now);
+
+    function handleExportCalendar() {
+        if (personalAssignments.length === 0) {
+            toast.error('No assignments to export');
+            return;
+        }
+        const ics = generateICS(personalAssignments);
+        downloadICS(ics, 'my-schedule.ics');
+        toast.success('Calendar exported! Open the .ics file to import.');
+    }
 
     const tabs = [
         { key: 'personal', label: 'My Schedule', icon: User },
@@ -182,7 +339,7 @@ export default function MemberSchedulePage() {
 
     return (
         <div className="space-y-6">
-            {/* ── Header ────────────────────────────────────────────────────────── */}
+            {/* ── Header ────────────────────────────────────────────────────── */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                 <div className="flex-1">
                     <h1 className="text-2xl font-bold text-surface-900">My Schedule</h1>
@@ -191,29 +348,41 @@ export default function MemberSchedulePage() {
                     </p>
                 </div>
 
-                {/* Team selector */}
-                {teams.length > 1 && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-surface-400">Team:</span>
-                        <select
-                            value={selectedTeam?.id || ''}
-                            onChange={(e) => {
-                                const t = teams.find((t) => t.id === e.target.value);
-                                setSelectedTeam(t);
-                            }}
-                            className="rounded-lg border border-surface-200 bg-white px-3 py-1.5 text-sm text-surface-700 focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none"
-                        >
-                            {teams.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                    {t.name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                    {/* Team selector */}
+                    {teams.length > 1 && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-surface-400">Team:</span>
+                            <select
+                                value={selectedTeam?.id || ''}
+                                onChange={(e) => {
+                                    const t = teams.find((t) => t.id === e.target.value);
+                                    setSelectedTeam(t);
+                                }}
+                                className="rounded-lg border border-surface-200 bg-white px-3 py-1.5 text-sm text-surface-700 focus:border-primary-400 focus:ring-2 focus:ring-primary-100 outline-none"
+                            >
+                                {teams.map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                        {t.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
+                    {/* Export Calendar */}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        iconLeft={Download}
+                        onClick={handleExportCalendar}
+                    >
+                        Export Calendar
+                    </Button>
+                </div>
             </div>
 
-            {/* ── Tabs ──────────────────────────────────────────────────────────── */}
+            {/* ── Tabs ──────────────────────────────────────────────────────── */}
             <div className="flex gap-1 p-1 bg-surface-100 rounded-xl w-fit">
                 {tabs.map((tab) => {
                     const Icon = tab.icon;
@@ -235,14 +404,14 @@ export default function MemberSchedulePage() {
                 })}
             </div>
 
-            {/* ── Loading ───────────────────────────────────────────────────────── */}
+            {/* ── Loading ───────────────────────────────────────────────────── */}
             {loading && (
                 <div className="flex items-center justify-center py-12">
                     <Loader2 size={24} className="animate-spin text-primary-500" />
                 </div>
             )}
 
-            {/* ── No teams ──────────────────────────────────────────────────────── */}
+            {/* ── No teams ──────────────────────────────────────────────────── */}
             {!loading && teams.length === 0 && (
                 <EmptyState
                     icon={Users}
@@ -251,7 +420,7 @@ export default function MemberSchedulePage() {
                 />
             )}
 
-            {/* ── Personal tab ──────────────────────────────────────────────────── */}
+            {/* ── Personal tab ──────────────────────────────────────────────── */}
             {!loading && activeTab === 'personal' && selectedTeam && (
                 <div className="space-y-6">
                     {/* Stats */}
@@ -293,7 +462,12 @@ export default function MemberSchedulePage() {
                             </h2>
                             <div className="space-y-2">
                                 {upcoming.map((duty) => (
-                                    <DutyCard key={duty.id} duty={duty} isUpcoming />
+                                    <DutyCard
+                                        key={duty.id}
+                                        duty={duty}
+                                        isUpcoming
+                                        onSwap={() => setSwapDuty(duty)}
+                                    />
                                 ))}
                             </div>
                         </div>
@@ -327,7 +501,7 @@ export default function MemberSchedulePage() {
                 </div>
             )}
 
-            {/* ── General tab ───────────────────────────────────────────────────── */}
+            {/* ── General tab ───────────────────────────────────────────────── */}
             {!loading && activeTab === 'general' && selectedTeam && generalRoster && (
                 <div className="space-y-4">
                     <Card className="p-4">
@@ -343,7 +517,6 @@ export default function MemberSchedulePage() {
                             </div>
                         </div>
 
-                        {/* Events as table-like cards */}
                         <div className="space-y-4">
                             {generalRoster.events.map((event) => {
                                 const eventAssignments = generalRoster.assignments.filter(
@@ -430,13 +603,24 @@ export default function MemberSchedulePage() {
                     </p>
                 </Card>
             )}
+
+            {/* Swap Request Modal */}
+            {swapDuty && (
+                <SwapRequestModal
+                    duty={swapDuty}
+                    teamId={selectedTeam?.id}
+                    userId={user?.id}
+                    userName={profile?.full_name || user?.email || 'You'}
+                    onClose={() => setSwapDuty(null)}
+                />
+            )}
         </div>
     );
 }
 
 // ── Duty Card Component ──────────────────────────────────────────────────────
 
-function DutyCard({ duty, isUpcoming }) {
+function DutyCard({ duty, isUpcoming, onSwap }) {
     return (
         <div
             className={cn(
@@ -467,12 +651,24 @@ function DutyCard({ duty, isUpcoming }) {
                 </Badge>
             </div>
 
-            {/* Status */}
-            {isUpcoming ? (
-                <Clock size={18} className="text-primary-500 shrink-0" />
-            ) : (
-                <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />
-            )}
+            {/* Actions */}
+            <div className="flex items-center gap-2 shrink-0">
+                {isUpcoming && onSwap && (
+                    <button
+                        onClick={onSwap}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+                        title="Request a swap"
+                    >
+                        <AlertCircle size={12} />
+                        Can't make it
+                    </button>
+                )}
+                {isUpcoming ? (
+                    <Clock size={18} className="text-primary-500" />
+                ) : (
+                    <CheckCircle2 size={18} className="text-emerald-500" />
+                )}
+            </div>
         </div>
     );
 }

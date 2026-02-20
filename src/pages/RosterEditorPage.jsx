@@ -497,6 +497,18 @@ export default function RosterEditorPage() {
         published_at: data?.published_at || new Date().toISOString(),
         share_token: shareToken || data?.share_token,
       }));
+
+      // Post team chat notification
+      if (roster.team_id && supabase) {
+        const link = shareToken ? `\n\n🔗 ${window.location.origin}/r/${shareToken}` : '';
+        const chatMsg = `📋 Roster Published: "${roster.title}"\n📅 ${roster.start_date} – ${roster.end_date}\n\nCheck your duties in My Schedule.${link}`;
+        await supabase.from('team_messages').insert({
+          team_id: roster.team_id,
+          user_id: '00000000-0000-0000-0000-000000000000',
+          author_name: 'RosterFlow',
+          content: chatMsg,
+        });
+      }
     } catch (err) {
       console.error('Failed to publish roster:', err);
       toast.error('Failed to publish roster. Please try again.');

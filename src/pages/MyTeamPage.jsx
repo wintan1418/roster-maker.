@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Send, Users, ChevronDown, ChevronUp,
-  Smile, Reply, Copy, Trash2, CornerUpRight, X, Music2,
+  Smile, Reply, Copy, Trash2, CornerUpRight, X, Music2, Pin, PinOff,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import useAuthStore from '@/stores/authStore';
@@ -42,7 +42,7 @@ const WALLPAPER_SVG = encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg
 </svg>`);
 
 export default function MyTeamPage() {
-  const { user, profile } = useAuthStore();
+  const { user, profile, orgRole } = useAuthStore();
   const markRead = useChatNotifStore((s) => s.markRead);
   const [teams, setTeams] = useState([]);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
@@ -62,6 +62,8 @@ export default function MyTeamPage() {
   const [cursorPos, setCursorPos] = useState(0);
   const [activeMessage, setActiveMessage] = useState(null);
   const [replyTo, setReplyTo] = useState(null);
+  const [pinnedMsg, setPinnedMsg] = useState(null);
+  const isAdmin = orgRole === 'super_admin' || orgRole === 'team_admin';
 
   useEffect(() => {
     if (!supabase || !user) return;
@@ -91,10 +93,23 @@ export default function MyTeamPage() {
       );
     supabase.from('team_messages').select('*').eq('team_id', selectedTeamId)
       .order('created_at', { ascending: true }).limit(100)
-      .then(({ data }) => setMessages(data ?? []));
+      .then(({ data }) => {
+        const msgs = data ?? [];
+        setMessages(msgs);
+        const pinned = msgs.find((m) => m.is_pinned);
+        setPinnedMsg(pinned || null);
+      });
     const channel = supabase.channel(`team-${selectedTeamId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'team_messages', filter: `team_id=eq.${selectedTeamId}` }, (p) => setMessages((prev) => [...prev, p.new]))
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'team_messages', filter: `team_id=eq.${selectedTeamId}` }, (p) => setMessages((prev) => prev.filter((m) => m.id !== p.old.id)))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'team_messages', filter: `team_id=eq.${selectedTeamId}` }, (p) => {
+        setMessages((prev) => prev.filter((m) => m.id !== p.old.id));
+        setPinnedMsg((prev) => prev?.id === p.old.id ? null : prev);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'team_messages', filter: `team_id=eq.${selectedTeamId}` }, (p) => {
+        setMessages((prev) => prev.map((m) => m.id === p.new.id ? p.new : m));
+        if (p.new.is_pinned) setPinnedMsg(p.new);
+        else setPinnedMsg((prev) => prev?.id === p.new.id ? null : prev);
+      })
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [selectedTeamId]);
@@ -152,6 +167,17 @@ export default function MyTeamPage() {
   async function deleteMessage(msgId) { setActiveMessage(null); await supabase.from('team_messages').delete().eq('id', msgId); setMessages((prev) => prev.filter((m) => m.id !== msgId)); }
   function copyMessage(content) { navigator.clipboard.writeText(content); setActiveMessage(null); }
   function startReply(msg) { setReplyTo(msg); setActiveMessage(null); inputRef.current?.focus(); }
+  async function togglePin(msg) {
+    setActiveMessage(null);
+    // Unpin previously pinned message first
+    if (pinnedMsg && pinnedMsg.id !== msg.id) {
+      await supabase.from('team_messages').update({ is_pinned: false }).eq('id', pinnedMsg.id);
+    }
+    const newPinned = !msg.is_pinned;
+    await supabase.from('team_messages').update({ is_pinned: newPinned }).eq('id', msg.id);
+    setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, is_pinned: newPinned } : { ...m, is_pinned: false }));
+    setPinnedMsg(newPinned ? { ...msg, is_pinned: true } : null);
+  }
   function openEmoji() {
     if (showEmoji) { setShowEmoji(false); return; }
     const btn = emojiButtonRef.current;
@@ -286,6 +312,21 @@ export default function MyTeamPage() {
             </div>
           )}
 
+          {/* Pinned message banner */}
+          {pinnedMsg && (
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-amber-200/60 shrink-0 relative z-10"
+              style={{ background: 'rgba(254,243,199,0.95)', backdropFilter: 'blur(8px)' }}>
+              <Pin size={13} className="text-amber-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider leading-none mb-0.5">Pinned</p>
+                <p className="text-xs text-surface-700 truncate">{pinnedMsg.content?.substring(0, 100)}</p>
+              </div>
+              {isAdmin && (
+                <button onClick={() => togglePin(pinnedMsg)} className="shrink-0 p-0.5 rounded hover:bg-amber-200 text-amber-600 cursor-pointer"><X size={14} /></button>
+              )}
+            </div>
+          )}
+
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-2 relative z-10" onClick={() => setActiveMessage(null)}>
 
@@ -365,6 +406,12 @@ export default function MyTeamPage() {
                         <button onClick={() => copyMessage(msg.content)} className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-surface-600 hover:bg-surface-100 cursor-pointer">
                           <Copy size={12} /><span className="hidden sm:inline">Copy</span>
                         </button>
+                        {isAdmin && (
+                          <button onClick={() => togglePin(msg)} className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs hover:bg-amber-50 cursor-pointer ${msg.is_pinned ? 'text-amber-600' : 'text-surface-600'}`}>
+                            {msg.is_pinned ? <PinOff size={12} /> : <Pin size={12} />}
+                            <span className="hidden sm:inline">{msg.is_pinned ? 'Unpin' : 'Pin'}</span>
+                          </button>
+                        )}
                         {isMe && (
                           <button onClick={() => deleteMessage(msg.id)} className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-red-500 hover:bg-red-50 cursor-pointer">
                             <Trash2 size={12} /><span className="hidden sm:inline">Delete</span>
