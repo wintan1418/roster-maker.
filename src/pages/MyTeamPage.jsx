@@ -1,6 +1,18 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageSquare, Send, Users, ChevronDown, ChevronUp, Smile } from 'lucide-react';
+import {
+  MessageSquare,
+  Send,
+  Users,
+  ChevronDown,
+  ChevronUp,
+  Smile,
+  Reply,
+  Copy,
+  Trash2,
+  CornerUpRight,
+  X,
+} from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import useAuthStore from '@/stores/authStore';
 import Avatar from '@/components/ui/Avatar';
@@ -8,10 +20,10 @@ import Avatar from '@/components/ui/Avatar';
 const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
 
 const EMOJIS = [
-  '😊','😂','🥰','😍','🤩','😎','😄','😁','🤗','😅','😭','🤣',
-  '🙏','👍','❤️','🔥','✨','🎉','🎊','🥳','💪','💯','🌟','⭐',
-  '👋','🫶','🤝','🙌','👏','🕊️','🎵','🎶','🎤','🎸','🥁','🎹',
-  '📅','📌','💫','🌈','⚡','🎁','😇','🫡','💬','📢','🗓️','🎯',
+  '😊', '😂', '🥰', '😍', '🤩', '😎', '😄', '😁', '🤗', '😅', '😭', '🤣',
+  '🙏', '👍', '❤️', '🔥', '✨', '🎉', '🎊', '🥳', '💪', '💯', '🌟', '⭐',
+  '👋', '🫶', '🤝', '🙌', '👏', '🕊️', '🎵', '🎶', '🎤', '🎸', '🥁', '🎹',
+  '📅', '📌', '💫', '🌈', '⚡', '🎁', '😇', '🫡', '💬', '📢', '🗓️', '🎯',
 ];
 
 export default function MyTeamPage() {
@@ -30,6 +42,16 @@ export default function MyTeamPage() {
   const inputRef = useRef(null);
   const emojiButtonRef = useRef(null);
 
+  // @mention state
+  const [mentionQuery, setMentionQuery] = useState(null); // null = not active
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [cursorPos, setCursorPos] = useState(0);
+
+  // Quick actions state
+  const [activeMessage, setActiveMessage] = useState(null);
+  const [replyTo, setReplyTo] = useState(null);
+
+  // ── Fetch teams ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!supabase || !user) return;
     supabase
@@ -44,6 +66,7 @@ export default function MyTeamPage() {
       });
   }, [user]);
 
+  // ── Fetch members & messages + Realtime ──────────────────────────────────
   useEffect(() => {
     if (!supabase || !selectedTeamId) return;
 
@@ -77,31 +100,146 @@ export default function MyTeamPage() {
         { event: 'INSERT', schema: 'public', table: 'team_messages', filter: `team_id=eq.${selectedTeamId}` },
         (payload) => setMessages((prev) => [...prev, payload.new])
       )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'team_messages', filter: `team_id=eq.${selectedTeamId}` },
+        (payload) => setMessages((prev) => prev.filter((m) => m.id !== payload.old.id))
+      )
       .subscribe();
 
     return () => supabase.removeChannel(channel);
   }, [selectedTeamId]);
 
+  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // ── @mention filter ─────────────────────────────────────────────────────
+  const mentionMatches = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return members
+      .filter((m) => m.user_id !== user?.id && m.name.toLowerCase().includes(q))
+      .slice(0, 6);
+  }, [mentionQuery, members, user]);
+
+  // ── Handle text change with @mention detection ──────────────────────────
+  const handleInputChange = useCallback((e) => {
+    const val = e.target.value;
+    const cursor = e.target.selectionStart;
+    setText(val);
+    setCursorPos(cursor);
+
+    // Detect @mention trigger
+    const before = val.substring(0, cursor);
+    const atIdx = before.lastIndexOf('@');
+
+    if (atIdx !== -1) {
+      const afterAt = before.substring(atIdx + 1);
+      // Only trigger if @ is at start or preceded by a space, and no spaces in query
+      const charBefore = atIdx > 0 ? before[atIdx - 1] : ' ';
+      if ((charBefore === ' ' || charBefore === '\n' || atIdx === 0) && !/\s/.test(afterAt)) {
+        setMentionQuery(afterAt);
+        setMentionIndex(0);
+        return;
+      }
+    }
+    setMentionQuery(null);
+  }, []);
+
+  // ── Handle mention keyboard nav ─────────────────────────────────────────
+  const handleKeyDown = useCallback((e) => {
+    if (mentionQuery !== null && mentionMatches.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionMatches.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        insertMention(mentionMatches[mentionIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionQuery(null);
+        return;
+      }
+    }
+
+    // Normal enter to send
+    if (e.key === 'Enter' && !e.shiftKey) {
+      sendMessage(e);
+    }
+  }, [mentionQuery, mentionMatches, mentionIndex]);
+
+  // ── Insert mention into text ─────────────────────────────────────────────
+  const insertMention = useCallback((member) => {
+    const before = text.substring(0, cursorPos);
+    const after = text.substring(cursorPos);
+    const atIdx = before.lastIndexOf('@');
+    const newText = before.substring(0, atIdx) + `@${member.name} ` + after;
+    setText(newText);
+    setMentionQuery(null);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }, [text, cursorPos]);
+
+  // ── Send message ─────────────────────────────────────────────────────────
   async function sendMessage(e) {
     e.preventDefault();
     if (!text.trim() || sending) return;
     setSending(true);
     const content = text.trim();
     setText('');
-    await supabase.from('team_messages').insert({
+    setReplyTo(null);
+    setMentionQuery(null);
+
+    const payload = {
       team_id: selectedTeamId,
       user_id: user.id,
       author_name: profile?.full_name || user.email,
       content,
-    });
+    };
+
+    // Include reply metadata
+    if (replyTo) {
+      payload.reply_to_id = replyTo.id;
+      payload.reply_to_name = replyTo.author_name;
+      payload.reply_to_content = replyTo.content?.substring(0, 100);
+    }
+
+    await supabase.from('team_messages').insert(payload);
     setSending(false);
     inputRef.current?.focus();
   }
 
+  // ── Delete message ───────────────────────────────────────────────────────
+  async function deleteMessage(msgId) {
+    setActiveMessage(null);
+    await supabase.from('team_messages').delete().eq('id', msgId);
+    setMessages((prev) => prev.filter((m) => m.id !== msgId));
+  }
+
+  // ── Copy message ─────────────────────────────────────────────────────────
+  function copyMessage(content) {
+    navigator.clipboard.writeText(content);
+    setActiveMessage(null);
+  }
+
+  // ── Reply to message ─────────────────────────────────────────────────────
+  function startReply(msg) {
+    setReplyTo(msg);
+    setActiveMessage(null);
+    inputRef.current?.focus();
+  }
+
+  // ── Emoji picker ─────────────────────────────────────────────────────────
   function openEmoji() {
     if (showEmoji) { setShowEmoji(false); return; }
     const btn = emojiButtonRef.current;
@@ -123,6 +261,22 @@ export default function MyTeamPage() {
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
 
+  // ── Render @mention content (highlight mentions) ─────────────────────────
+  function renderContent(content) {
+    const parts = content.split(/(@\w[\w\s]*?)(?=\s|$)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('@') && members.some((m) => `@${m.name}` === part.trim())) {
+        return (
+          <span key={i} className="bg-primary-100 text-primary-700 rounded px-0.5 font-medium">
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  }
+
+  // ── Loading ──────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -153,11 +307,10 @@ export default function MyTeamPage() {
             <button
               key={t.id}
               onClick={() => setSelectedTeamId(t.id)}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
-                selectedTeamId === t.id
+              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors cursor-pointer ${selectedTeamId === t.id
                   ? 'bg-primary-600 text-white'
                   : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
-              }`}
+                }`}
             >
               {t.name}
             </button>
@@ -218,15 +371,16 @@ export default function MyTeamPage() {
           )}
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3" onClick={() => setActiveMessage(null)}>
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center text-surface-400 py-16">
                 <MessageSquare size={32} className="mb-2 opacity-20" />
                 <p className="text-sm">No messages yet. Say hello!</p>
+                <p className="text-xs mt-1 text-surface-300">Type @ to mention someone</p>
               </div>
             )}
             {messages.map((msg) => {
-              // System / welcome messages
+              // System messages
               if (msg.user_id === SYSTEM_USER) {
                 return (
                   <div key={msg.id} className="flex justify-center my-2">
@@ -239,8 +393,10 @@ export default function MyTeamPage() {
               }
 
               const isMe = msg.user_id === user.id;
+              const isActive = activeMessage === msg.id;
+
               return (
-                <div key={msg.id} className={`flex gap-2 ${isMe ? 'flex-row-reverse' : ''}`}>
+                <div key={msg.id} className={`flex gap-2 ${isMe ? 'flex-row-reverse' : ''} group relative`}>
                   <div className="shrink-0 mt-1">
                     <Avatar name={msg.author_name} size="sm" />
                   </div>
@@ -248,15 +404,66 @@ export default function MyTeamPage() {
                     {!isMe && (
                       <span className="text-[11px] text-surface-400 px-1 font-medium">{msg.author_name}</span>
                     )}
+
+                    {/* Reply reference */}
+                    {msg.reply_to_name && (
+                      <div className={`flex items-center gap-1.5 text-[10px] text-surface-400 px-2 ${isMe ? 'flex-row-reverse' : ''}`}>
+                        <CornerUpRight size={10} />
+                        <span className="font-medium">{msg.reply_to_name}</span>
+                        <span className="truncate max-w-[120px] opacity-70">{msg.reply_to_content}</span>
+                      </div>
+                    )}
+
+                    {/* Message bubble — click to show actions */}
                     <div
-                      className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words whitespace-pre-wrap ${
-                        isMe
-                          ? 'bg-primary-600 text-white rounded-tr-sm'
-                          : 'bg-surface-100 text-surface-800 rounded-tl-sm'
-                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveMessage(isActive ? null : msg.id);
+                      }}
+                      className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words whitespace-pre-wrap cursor-pointer transition-all ${isMe
+                          ? 'bg-primary-600 text-white rounded-tr-sm hover:bg-primary-700'
+                          : 'bg-surface-100 text-surface-800 rounded-tl-sm hover:bg-surface-200'
+                        } ${isActive ? 'ring-2 ring-primary-400/50' : ''}`}
                     >
-                      {msg.content}
+                      {renderContent(msg.content)}
                     </div>
+
+                    {/* Quick actions popup */}
+                    {isActive && (
+                      <div
+                        className={`flex items-center gap-0.5 bg-white border border-surface-200 rounded-xl shadow-lg px-1 py-0.5 animate-in fade-in slide-in-from-bottom-1 duration-150 ${isMe ? 'self-end' : 'self-start'
+                          }`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          onClick={() => startReply(msg)}
+                          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-surface-600 hover:bg-surface-100 transition-colors cursor-pointer"
+                          title="Reply"
+                        >
+                          <Reply size={13} />
+                          <span className="hidden sm:inline">Reply</span>
+                        </button>
+                        <button
+                          onClick={() => copyMessage(msg.content)}
+                          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-surface-600 hover:bg-surface-100 transition-colors cursor-pointer"
+                          title="Copy"
+                        >
+                          <Copy size={13} />
+                          <span className="hidden sm:inline">Copy</span>
+                        </button>
+                        {isMe && (
+                          <button
+                            onClick={() => deleteMessage(msg.id)}
+                            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                            title="Delete"
+                          >
+                            <Trash2 size={13} />
+                            <span className="hidden sm:inline">Delete</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     <span className="text-[10px] text-surface-300 px-1">
                       {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
@@ -266,6 +473,44 @@ export default function MyTeamPage() {
             })}
             <div ref={bottomRef} />
           </div>
+
+          {/* Reply bar */}
+          {replyTo && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-surface-50 border-t border-surface-100 text-xs shrink-0">
+              <CornerUpRight size={14} className="text-primary-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold text-surface-700">{replyTo.author_name}</span>
+                <span className="text-surface-400 ml-2 truncate inline-block max-w-[200px] align-bottom">
+                  {replyTo.content?.substring(0, 80)}
+                </span>
+              </div>
+              <button
+                onClick={() => setReplyTo(null)}
+                className="shrink-0 p-1 rounded hover:bg-surface-200 text-surface-400 cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* @mention autocomplete */}
+          {mentionQuery !== null && mentionMatches.length > 0 && (
+            <div className="mx-3 mb-1 bg-white border border-surface-200 rounded-xl shadow-lg overflow-hidden shrink-0">
+              {mentionMatches.map((m, idx) => (
+                <button
+                  key={m.id}
+                  onClick={() => insertMention(m)}
+                  className={`flex items-center gap-2.5 w-full px-3 py-2 text-sm text-left transition-colors cursor-pointer ${idx === mentionIndex
+                      ? 'bg-primary-50 text-primary-700'
+                      : 'text-surface-700 hover:bg-surface-50'
+                    }`}
+                >
+                  <Avatar name={m.name} size="xs" />
+                  <span className="font-medium">{m.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Input */}
           <form
@@ -285,9 +530,9 @@ export default function MyTeamPage() {
             <input
               ref={inputRef}
               value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { sendMessage(e); } }}
-              placeholder="Message..."
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Message... (type @ to mention)"
               className="flex-1 px-4 py-2.5 rounded-xl border border-surface-200 text-sm text-surface-800 placeholder-surface-400 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100"
             />
             <button

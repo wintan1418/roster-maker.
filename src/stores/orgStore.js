@@ -80,6 +80,29 @@ const useOrgStore = create((set) => ({
   },
 
   /**
+   * Update a member's org-level role.
+   */
+  updateMemberRole: async (memberId, newRole) => {
+    try {
+      const { error } = await supabase
+        .from('org_members')
+        .update({ role: newRole })
+        .eq('id', memberId);
+
+      if (error) throw error;
+      set((state) => ({
+        members: state.members.map((m) =>
+          m.id === memberId ? { ...m, role: newRole } : m
+        ),
+      }));
+      return { error: null };
+    } catch (err) {
+      console.error('Failed to update member role:', err.message);
+      return { error: err };
+    }
+  },
+
+  /**
    * Fetch all members belonging to an organization (via org_members join).
    */
   fetchMembers: async (orgId) => {

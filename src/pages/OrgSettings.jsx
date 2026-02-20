@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Settings,
   Building2,
@@ -14,6 +14,8 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  Loader2,
+  X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -67,6 +69,7 @@ export default function OrgSettings() {
     fetchOrganization,
     fetchMembers,
     updateOrganization,
+    updateMemberRole,
   } = useOrgStore();
 
   const [org, setOrg] = useState({
@@ -78,11 +81,14 @@ export default function OrgSettings() {
     website: '',
     tagline: '',
     primaryColor: '#2563eb',
+    logoUrl: '',
   });
   const [saving, setSaving] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [editingRoleId, setEditingRoleId] = useState(null);
+  const fileInputRef = useRef(null);
 
   // ── Fetch organization & members on mount ───────────────────────────────
   useEffect(() => {
@@ -105,6 +111,7 @@ export default function OrgSettings() {
         website: s.website || '',
         tagline: s.tagline || '',
         primaryColor: s.primaryColor || '#2563eb',
+        logoUrl: s.logoUrl || '',
       });
     }
   }, [organization]);
@@ -141,6 +148,7 @@ export default function OrgSettings() {
           website: org.website,
           tagline: org.tagline,
           primaryColor: org.primaryColor,
+          logoUrl: org.logoUrl,
         },
       });
       if (error) throw error;
@@ -152,11 +160,61 @@ export default function OrgSettings() {
     }
   }, [orgId, org, updateOrganization]);
 
-  const handleRoleChange = useCallback((memberId, newRole) => {
-    // Role change via store can be added later; for now update locally
-    setEditingRoleId(null);
-    toast.success('Member role updated');
+  const handleLogoUpload = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be under 5 MB');
+      return;
+    }
+
+    setLogoUploading(true);
+
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      // Scale to max 256×256 for crisp display at 96×96
+      const MAX = 256;
+      const scale = Math.min(MAX / img.width, MAX / img.height, 1);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/png', 0.9);
+      setOrg((prev) => ({ ...prev, logoUrl: dataUrl }));
+      setLogoUploading(false);
+      toast.success('Logo ready — click Save Changes to confirm');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      setLogoUploading(false);
+      toast.error('Could not read image file');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    img.src = objectUrl;
   }, []);
+
+  const handleRemoveLogo = useCallback(() => {
+    setOrg((prev) => ({ ...prev, logoUrl: '' }));
+    toast('Logo removed — click Save Changes to confirm', { icon: 'ℹ️' });
+  }, []);
+
+  const handleRoleChange = useCallback(async (memberId, newRole) => {
+    setEditingRoleId(null);
+    const { error } = await updateMemberRole(memberId, newRole);
+    if (error) {
+      toast.error('Failed to update role');
+    } else {
+      toast.success('Member role updated');
+    }
+  }, [updateMemberRole]);
 
   const handleDeleteOrg = useCallback(() => {
     if (deleteConfirmText === org.name) {
@@ -213,22 +271,63 @@ export default function OrgSettings() {
 
         <Card.Body className="space-y-5">
           <div className="flex flex-col sm:flex-row gap-5">
-            {/* Logo Upload Placeholder */}
+            {/* Logo Upload */}
             <div className="shrink-0">
               <label className="block text-sm font-medium text-surface-700 mb-1.5">
                 Logo
               </label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,image/svg+xml"
+                className="hidden"
+                onChange={handleLogoUpload}
+              />
               <div className="relative group">
-                <div className="w-24 h-24 rounded-xl bg-surface-100 border-2 border-dashed border-surface-300 flex flex-col items-center justify-center cursor-pointer hover:border-primary-400 hover:bg-primary-50/50 transition-all duration-200">
-                  <Camera
-                    size={20}
-                    className="text-surface-400 group-hover:text-primary-500 transition-colors duration-200"
-                  />
-                  <span className="text-xs text-surface-400 mt-1 group-hover:text-primary-500 transition-colors duration-200">
-                    Upload
-                  </span>
+                <div
+                  onClick={() => !logoUploading && fileInputRef.current?.click()}
+                  className={clsx(
+                    'w-24 h-24 rounded-xl border-2 flex flex-col items-center justify-center transition-all duration-200',
+                    logoUploading
+                      ? 'border-surface-300 bg-surface-50 cursor-wait'
+                      : 'cursor-pointer hover:border-primary-400 hover:bg-primary-50/50',
+                    org.logoUrl
+                      ? 'border-surface-300 bg-white overflow-hidden p-0'
+                      : 'border-dashed border-surface-300 bg-surface-100'
+                  )}
+                >
+                  {logoUploading ? (
+                    <Loader2 size={20} className="text-primary-500 animate-spin" />
+                  ) : org.logoUrl ? (
+                    <img
+                      src={org.logoUrl}
+                      alt="Org logo"
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <>
+                      <Camera
+                        size={20}
+                        className="text-surface-400 group-hover:text-primary-500 transition-colors duration-200"
+                      />
+                      <span className="text-xs text-surface-400 mt-1 group-hover:text-primary-500 transition-colors duration-200">
+                        Upload
+                      </span>
+                    </>
+                  )}
                 </div>
+                {org.logoUrl && !logoUploading && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveLogo}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow cursor-pointer hover:bg-red-600 transition-colors"
+                    title="Remove logo"
+                  >
+                    <X size={10} />
+                  </button>
+                )}
               </div>
+              <p className="mt-1.5 text-xs text-surface-400">Max 2 MB</p>
             </div>
 
             <div className="flex-1 space-y-4">
@@ -362,6 +461,29 @@ export default function OrgSettings() {
             <p className="mt-2 text-xs text-surface-400">
               Selected: {COLOR_PRESETS.find((c) => c.value === org.primaryColor)?.name || 'Custom'}{' '}
               ({org.primaryColor})
+            </p>
+
+            {/* Color preview */}
+            <div className="mt-4 rounded-xl border border-surface-200 overflow-hidden">
+              <div
+                className="px-4 py-3 flex items-center justify-between"
+                style={{ backgroundColor: org.primaryColor }}
+              >
+                <span className="text-white text-sm font-semibold">{org.name || 'Your Organization'}</span>
+                <span className="text-white/80 text-xs">Roster Preview</span>
+              </div>
+              <div className="px-4 py-3 bg-white flex items-center justify-between">
+                <span className="text-surface-600 text-sm">Sunday Service · 09:00</span>
+                <span
+                  className="text-xs font-medium px-2.5 py-1 rounded-full text-white"
+                  style={{ backgroundColor: org.primaryColor }}
+                >
+                  Published
+                </span>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-surface-400">
+              This color is used on published roster pages and shared links.
             </p>
           </div>
         </Card.Body>
