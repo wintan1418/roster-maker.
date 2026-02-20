@@ -182,6 +182,7 @@ export default function MemberSchedulePage() {
     const [generalRoster, setGeneralRoster] = useState(null);
     const [swapDuty, setSwapDuty] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [fetchStats, setFetchStats] = useState(null); // debug: { rosters, totalAssignments, myAssignments }
 
     // ── Fetch teams ───────────────────────────────────────────────────────
     useEffect(() => {
@@ -371,6 +372,18 @@ export default function MemberSchedulePage() {
                 myDuties.sort((a, b) => new Date(a.date) - new Date(b.date));
                 setPersonalAssignments(myDuties);
 
+                // Track stats for helpful empty-state diagnostics
+                const totalAssignmentsAcrossRosters = rosters.reduce((sum, r) => {
+                    const sf = r.signature_fields;
+                    if (!sf || typeof sf !== 'object') return sum;
+                    return sum + Object.keys(sf.assignments || {}).length;
+                }, 0);
+                setFetchStats({
+                    rostersFound: rosters.length,
+                    totalAssignments: totalAssignmentsAcrossRosters,
+                    myAssignments: myDuties.length,
+                });
+
                 setGeneralRoster({
                     roster: latestRoster,
                     events: latestEvents,
@@ -554,8 +567,18 @@ export default function MemberSchedulePage() {
                         <Card className="p-8 text-center">
                             <Calendar size={32} className="text-surface-300 mx-auto mb-3" />
                             <p className="text-sm text-surface-500">
-                                No upcoming duties scheduled. Check back later!
+                                No upcoming duties scheduled for you.
                             </p>
+                            {fetchStats && (
+                                <p className="text-xs text-surface-400 mt-2">
+                                    {fetchStats.rostersFound === 0
+                                        ? 'No published rosters found for this team yet.'
+                                        : fetchStats.totalAssignments === 0
+                                            ? `Found ${fetchStats.rostersFound} published roster(s) but no assignments have been saved yet. Open the roster and click Save or Publish to save your assignments.`
+                                            : `Found ${fetchStats.rostersFound} roster(s) with ${fetchStats.totalAssignments} total assignment(s) — but none are assigned to your account. Make sure your name is assigned in the roster editor.`
+                                    }
+                                </p>
+                            )}
                         </Card>
                     )}
 

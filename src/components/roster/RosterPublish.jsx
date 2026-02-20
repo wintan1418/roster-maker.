@@ -262,7 +262,7 @@ export default function RosterPublish({
       const token = generateLink ? generateShareToken(16) : null;
       const computedShareLink = token ? `${window.location.origin}/r/${token}` : shareLink;
 
-      // 1. Publish the roster (updates DB status + share_token)
+      // 1. Publish the roster (saves assignments + updates DB status + broadcasts to team chat)
       await onConfirmPublish?.(token);
       if (token) setShareLink(computedShareLink);
 
@@ -275,7 +275,14 @@ export default function RosterPublish({
       toast.success('Roster published successfully!');
     } catch (err) {
       console.error('Publish failed:', err);
-      toast.error('Failed to publish roster. Please try again.');
+      // If the roster was published but only the chat broadcast failed, still show success
+      if (err.message?.startsWith('Team chat failed:')) {
+        setIsPublished(true);
+        toast.success('Roster published!');
+        toast.error(err.message, { duration: 6000 });
+      } else {
+        toast.error('Failed to publish roster: ' + err.message);
+      }
     } finally {
       setIsPublishing(false);
     }
