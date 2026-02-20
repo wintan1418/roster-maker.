@@ -226,3 +226,12 @@ CREATE POLICY "team_members_read_skill_ratings"
         AND tm.user_id = auth.uid()
     )
   );
+
+-- ============================================================
+-- Grant table-level permissions so PostgREST exposes these tables.
+-- RLS policies above still control row-level access.
+-- ============================================================
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.event_songs TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.swap_requests TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.attendance_records TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.member_skill_ratings TO anon, authenticated;
