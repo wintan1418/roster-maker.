@@ -44,9 +44,10 @@ function fmtTime(t?: string) {
 }
 
 function buildEmailHtml({
-  memberName, myAssignments, roster, events, roles, assignments, members, songsByEvent, shareLink,
+  memberName, memberEmail, myAssignments, roster, events, roles, assignments, members, songsByEvent, shareLink,
 }: {
   memberName: string;
+  memberEmail: string;
   myAssignments: Array<{ event: RosterEvent; role: Role }>;
   roster: Record<string, string>;
   events: RosterEvent[];
@@ -163,7 +164,16 @@ function buildEmailHtml({
   </div>
   ${songlistHtml}
   <div style="padding:0 24px 32px;text-align:center;">
-    ${shareLink ? `<a href="${shareLink}" style="display:inline-block;background:linear-gradient(135deg,#1a3460,#0f1f3d);color:white;text-decoration:none;padding:14px 32px;border-radius:50px;font-weight:700;font-size:15px;">View Full Roster Online →</a>` : ''}
+    ${shareLink ? `
+      <a href="${shareLink}/me?email=${encodeURIComponent(memberEmail)}"
+         style="display:inline-block;background:linear-gradient(135deg,#1a3460,#0f1f3d);color:white;text-decoration:none;padding:14px 32px;border-radius:50px;font-weight:700;font-size:15px;">
+        View My Schedule →
+      </a>
+      <br>
+      <a href="${shareLink}" style="display:inline-block;margin-top:12px;color:#6b7280;font-size:13px;text-decoration:none;">
+        View Full Team Roster
+      </a>
+    ` : ''}
     <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">Visit <a href="${APP_URL}" style="color:#1d4ed8;">${APP_URL}</a></p>
   </div>
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 24px;text-align:center;">
@@ -230,6 +240,7 @@ Deno.serve(async (req) => {
 
       const html = buildEmailHtml({
         memberName: member.name,
+        memberEmail: member.email,
         myAssignments,
         roster,
         events:      events      as RosterEvent[],

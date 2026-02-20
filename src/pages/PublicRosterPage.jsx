@@ -1,15 +1,17 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useParams, useLocation, useSearchParams } from 'react-router-dom';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 import PublicRoster from '@/components/public/PublicRoster';
 import EmailLookup from '@/components/public/EmailLookup';
 import PersonalSchedule from '@/components/public/PersonalSchedule';
 import useRosterStore from '@/stores/rosterStore';
+import { supabase } from '@/lib/supabase';
 
 export default function PublicRosterPage() {
   const { shareToken } = useParams();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const isPersonalView = location.pathname.endsWith('/me');
 
   const { fetchPublicRoster } = useRosterStore();
@@ -17,6 +19,7 @@ export default function PublicRosterPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [rosterData, setRosterData] = useState(null);
+  const [songsByEvent, setSongsByEvent] = useState({});
   const [selectedMember, setSelectedMember] = useState(null);
 
   // Fetch roster data on mount
@@ -31,12 +34,31 @@ export default function PublicRosterPage() {
     setLoading(true);
     setError(null);
 
-    fetchPublicRoster(shareToken).then(({ data, error: err }) => {
+    fetchPublicRoster(shareToken).then(async ({ data, error: err }) => {
       if (cancelled) return;
       if (err || !data) {
         setError('Roster not found or no longer available.');
-      } else {
-        setRosterData(data);
+        setLoading(false);
+        return;
+      }
+      setRosterData(data);
+
+      // Fetch songs for all events
+      if (supabase && data.events?.length) {
+        const eventIds = data.events.map((e) => e.id);
+        const { data: songRows } = await supabase
+          .from('event_songs')
+          .select('roster_event_id, title, artist, key, sort_order')
+          .in('roster_event_id', eventIds)
+          .order('sort_order');
+        if (!cancelled && songRows) {
+          const map = {};
+          for (const s of songRows) {
+            if (!map[s.roster_event_id]) map[s.roster_event_id] = [];
+            map[s.roster_event_id].push({ title: s.title, artist: s.artist, key: s.key });
+          }
+          setSongsByEvent(map);
+        }
       }
       setLoading(false);
     });
@@ -52,14 +74,16 @@ export default function PublicRosterPage() {
     return rosterData.roleConfig.map((r) => r.name);
   }, [rosterData]);
 
-  // events: [{ id, date, label }]
+  // events: [{ id, date, name, time, rehearsalDate, rehearsalTime }]
   const events = useMemo(() => {
     if (!rosterData?.events) return [];
     return rosterData.events.map((e) => ({
       id: e.id,
       date: e.event_date,
-      label: e.event_name,
+      name: e.event_name,
       time: e.event_time,
+      rehearsalDate: e.rehearsal_date,
+      rehearsalTime: e.rehearsal_time,
     }));
   }, [rosterData]);
 
@@ -100,15 +124,27 @@ export default function PublicRosterPage() {
     return result;
   }, [rosterData]);
 
-  // members for EmailLookup: [{ id, name, email }]
+  // members for EmailLookup: [{ id, name, email, phone }]
   const lookupMembers = useMemo(() => {
     if (!rosterData?.members) return [];
     return rosterData.members.map((m) => ({
       id: m.id,
       name: m.name,
       email: m.email,
+      phone: m.phone,
     }));
   }, [rosterData]);
+
+  // Auto-resolve member from ?email= query param (used by email links)
+  useEffect(() => {
+    if (!isPersonalView || !rosterData?.members || selectedMember) return;
+    const emailParam = searchParams.get('email');
+    if (!emailParam) return;
+    const match = rosterData.members.find(
+      (m) => m.email?.toLowerCase() === emailParam.toLowerCase()
+    );
+    if (match) setSelectedMember({ id: match.id, name: match.name, email: match.email });
+  }, [isPersonalView, rosterData, searchParams, selectedMember]);
 
   // Personal duties for the selected member
   const personalDuties = useMemo(() => {
@@ -203,6 +239,7 @@ export default function PublicRosterPage() {
       roles={roles}
       events={events}
       assignments={displayAssignments}
+      songsByEvent={songsByEvent}
     />
   );
 }

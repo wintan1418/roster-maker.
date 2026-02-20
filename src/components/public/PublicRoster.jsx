@@ -26,6 +26,13 @@ import Avatar from '@/components/ui/Avatar';
  * @param {Array}  props.events        - [{ id, date, label }]
  * @param {Object} props.assignments   - { [eventId]: { [role]: memberName } }
  */
+function fmtTime(t) {
+  if (!t) return '';
+  const [h, m] = t.split(':');
+  const hr = parseInt(h, 10);
+  return `${hr > 12 ? hr - 12 : hr || 12}:${m} ${hr >= 12 ? 'PM' : 'AM'}`;
+}
+
 export default function PublicRoster({
   organization,
   team,
@@ -33,6 +40,7 @@ export default function PublicRoster({
   roles,
   events,
   assignments,
+  songsByEvent = {},
 }) {
   const navigate = useNavigate();
   const { shareToken } = useParams();
@@ -128,13 +136,22 @@ export default function PublicRoster({
                   idx % 2 === 1 && 'bg-surface-50/40'
                 )}
               >
-                <td className="px-3 py-3 whitespace-nowrap">
-                  <div className="font-medium text-surface-900">
+                <td className="px-3 py-3">
+                  <div className="font-semibold text-surface-900 whitespace-nowrap">
                     {formatDate(event.date, 'EEE, MMM d')}
                   </div>
-                  {event.label && (
-                    <div className="text-xs text-surface-400 mt-0.5">
-                      {event.label}
+                  <div className="text-xs text-surface-500 mt-0.5">{event.name}</div>
+                  {event.time && (
+                    <div className="text-xs text-surface-400">⛪ {fmtTime(event.time)}</div>
+                  )}
+                  {(event.rehearsalDate || event.rehearsalTime) && (
+                    <div className="text-xs text-amber-600 mt-0.5">
+                      🕐 Rehearsal: {event.rehearsalDate ? formatDate(event.rehearsalDate, 'EEE, MMM d') + ' ' : ''}{fmtTime(event.rehearsalTime)}
+                    </div>
+                  )}
+                  {(songsByEvent[event.id] || []).length > 0 && (
+                    <div className="text-xs text-violet-600 mt-0.5">
+                      🎵 {(songsByEvent[event.id] || []).map((s) => `${s.title}${s.key ? ` (${s.key})` : ''}`).join(' · ')}
                     </div>
                   )}
                 </td>
@@ -182,11 +199,19 @@ export default function PublicRoster({
               >
                 <div>
                   <div className="font-medium text-surface-900 text-sm">
-                    {formatDate(event.date, 'EEEE, MMMM d')}
+                    {formatDate(event.date, 'EEE, MMM d')} — {event.name}
                   </div>
-                  {event.label && (
-                    <div className="text-xs text-surface-400 mt-0.5">
-                      {event.label}
+                  {event.time && (
+                    <div className="text-xs text-surface-400 mt-0.5">⛪ {fmtTime(event.time)}</div>
+                  )}
+                  {(event.rehearsalDate || event.rehearsalTime) && (
+                    <div className="text-xs text-amber-600 mt-0.5">
+                      🕐 Rehearsal: {event.rehearsalDate ? formatDate(event.rehearsalDate, 'EEE, MMM d') + ' ' : ''}{fmtTime(event.rehearsalTime)}
+                    </div>
+                  )}
+                  {(songsByEvent[event.id] || []).length > 0 && (
+                    <div className="text-xs text-violet-600 mt-0.5">
+                      🎵 {(songsByEvent[event.id] || []).map((s) => `${s.title}${s.key ? ` (${s.key})` : ''}`).join(' · ')}
                     </div>
                   )}
                 </div>
