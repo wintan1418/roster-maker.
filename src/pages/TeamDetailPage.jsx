@@ -92,7 +92,8 @@ export default function TeamDetailPage() {
     } else {
       toast.success('Member added successfully');
     }
-  }, [teamId, orgId, addBulkMembers]);
+    loadInvitations();
+  }, [teamId, orgId, addBulkMembers, loadInvitations]);
 
   const handleBulkAdd = useCallback(async (membersList, roleIds) => {
     const { errors } = await addBulkMembers(teamId, orgId, membersList, roleIds);
@@ -191,6 +192,18 @@ export default function TeamDetailPage() {
     [deleteTeamRole]
   );
 
+  const handleRegenerateJoinToken = useCallback(async () => {
+    if (!supabase) return;
+    try {
+      const newToken = crypto.randomUUID();
+      await supabase.from('teams').update({ join_token: newToken }).eq('id', teamId);
+      fetchTeam(teamId);
+      toast.success('Join link regenerated');
+    } catch {
+      toast.error('Failed to regenerate link');
+    }
+  }, [teamId, fetchTeam]);
+
   const handleLoadTemplate = useCallback(
     async (templateRoles) => {
       const { error } = await addBulkRoles(teamId, templateRoles);
@@ -254,6 +267,7 @@ export default function TeamDetailPage() {
         onUpdateMemberRoles={handleUpdateMemberRoles}
         onResendInvitation={handleResendInvitation}
         onCancelInvitation={handleCancelInvitation}
+        onRegenerateJoinToken={handleRegenerateJoinToken}
         onAddRole={handleAddRole}
         onEditRole={handleEditRole}
         onDeleteRole={handleDeleteRole}

@@ -148,6 +148,25 @@ const useAuthStore = create((set, get) => ({
    * Look up a user's email by their phone number.
    * Used for phone-based magic link login.
    */
+  updateProfile: async (updates) => {
+    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
+    const { user } = get();
+    if (!user) return { data: null, error: new Error('Not authenticated') };
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', user.id)
+        .select()
+        .single();
+      if (error) throw error;
+      set({ profile: data });
+      return { data, error: null };
+    } catch (err) {
+      return { data: null, error: err };
+    }
+  },
+
   lookupByPhone: async (phone) => {
     if (!supabase) return { email: null, error: new Error('Supabase not configured') };
     try {

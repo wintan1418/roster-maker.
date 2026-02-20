@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -8,8 +9,12 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
+  Pencil,
+  Check,
+  X,
 } from 'lucide-react';
 import clsx from 'clsx';
+import toast from 'react-hot-toast';
 import useAuthStore from '@/stores/authStore';
 import { getInitials } from '@/lib/utils';
 
@@ -30,7 +35,9 @@ const memberNavItems = [
 
 export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }) {
   const navigate = useNavigate();
-  const { user, profile, orgRole, signOut } = useAuthStore();
+  const { user, profile, orgRole, signOut, updateProfile } = useAuthStore();
+  const [editingName, setEditingName] = useState(false);
+  const [nameValue, setNameValue] = useState('');
 
   const displayName = profile?.full_name || user?.user_metadata?.full_name || 'User';
   const initials = getInitials(displayName);
@@ -46,6 +53,17 @@ export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');
+  };
+
+  const handleSaveName = async () => {
+    if (!nameValue.trim()) return;
+    const { error } = await updateProfile({ full_name: nameValue.trim() });
+    if (error) {
+      toast.error('Failed to update name');
+    } else {
+      toast.success('Name updated');
+      setEditingName(false);
+    }
   };
 
   return (
@@ -142,14 +160,40 @@ export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }
               {initials}
             </div>
             {(!collapsed || mobile) && (
-              <div className="flex-1 overflow-hidden">
-                <p className="truncate text-sm font-medium text-white">{displayName}</p>
+              <div className="flex-1 overflow-hidden min-w-0">
+                {editingName ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      autoFocus
+                      value={nameValue}
+                      onChange={(e) => setNameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveName();
+                        if (e.key === 'Escape') setEditingName(false);
+                      }}
+                      className="w-full bg-white/10 text-white text-sm rounded px-1.5 py-0.5 outline-none border border-white/20 focus:border-primary-400"
+                    />
+                    <button onClick={handleSaveName} className="shrink-0 text-green-400 hover:text-green-300 cursor-pointer"><Check className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => setEditingName(false)} className="shrink-0 text-surface-400 hover:text-white cursor-pointer"><X className="h-3.5 w-3.5" /></button>
+                  </div>
+                ) : (
+                  <div className="group flex items-center gap-1 min-w-0">
+                    <p className="truncate text-sm font-medium text-white">{displayName}</p>
+                    <button
+                      onClick={() => { setNameValue(displayName); setEditingName(true); }}
+                      className="shrink-0 text-surface-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                      title="Edit name"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
                 <p className="truncate text-xs text-surface-400">
                   {roleLabel}
                 </p>
               </div>
             )}
-            {(!collapsed || mobile) && (
+            {(!collapsed || mobile) && !editingName && (
               <button
                 onClick={handleSignOut}
                 className="shrink-0 text-surface-400 transition-colors hover:text-white cursor-pointer"

@@ -12,6 +12,9 @@ import {
   Music,
   Church,
   Layers,
+  Link2,
+  Copy,
+  RefreshCw,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Card from '@/components/ui/Card';
@@ -53,6 +56,7 @@ export default function TeamDetail({
   onEditRole,
   onDeleteRole,
   onLoadTemplate,
+  onRegenerateJoinToken,
 }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [editingName, setEditingName] = useState(false);
@@ -212,7 +216,7 @@ export default function TeamDetail({
       {/* Tab content */}
       <div>
         {activeTab === 'overview' && (
-          <OverviewTab team={team} members={members} roles={roles} />
+          <OverviewTab team={team} members={members} roles={roles} onRegenerateJoinToken={onRegenerateJoinToken} />
         )}
         {activeTab === 'members' && (
           <TeamMemberManager
@@ -259,7 +263,16 @@ export default function TeamDetail({
   );
 }
 
-function OverviewTab({ team, members, roles }) {
+function OverviewTab({ team, members, roles, onRegenerateJoinToken }) {
+  const joinUrl = team.join_token
+    ? `${window.location.origin}/join/${team.join_token}`
+    : null;
+
+  function copyJoinLink() {
+    if (!joinUrl) return;
+    navigator.clipboard.writeText(joinUrl);
+    toast.success('Join link copied!');
+  }
   const adminCount = members.filter((m) => m.is_admin).length;
 
   // Group roles by category
@@ -351,6 +364,46 @@ function OverviewTab({ team, members, roles }) {
           </Card.Body>
         </Card>
       </div>
+
+      {/* Join link */}
+      {joinUrl && (
+        <div className="lg:col-span-2">
+          <Card>
+            <Card.Header>
+              <div className="flex items-center justify-between">
+                <Card.Title className="flex items-center gap-2">
+                  <Link2 size={16} className="text-primary-500" />
+                  Team Join Link
+                </Card.Title>
+                <button
+                  onClick={onRegenerateJoinToken}
+                  className="flex items-center gap-1.5 text-xs text-surface-400 hover:text-surface-600 transition-colors cursor-pointer"
+                  title="Regenerate link (invalidates old one)"
+                >
+                  <RefreshCw size={12} />
+                  Regenerate
+                </button>
+              </div>
+            </Card.Header>
+            <Card.Body>
+              <p className="text-xs text-surface-500 mb-3">
+                Share this link with anyone you want to join this team. They enter their email and receive a magic link to join automatically.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={joinUrl}
+                  className="flex-1 text-xs bg-surface-50 border border-surface-200 rounded-lg px-3 py-2 text-surface-700 font-mono select-all outline-none"
+                  onFocus={(e) => e.target.select()}
+                />
+                <Button size="sm" iconLeft={Copy} onClick={copyJoinLink}>
+                  Copy
+                </Button>
+              </div>
+            </Card.Body>
+          </Card>
+        </div>
+      )}
 
       {/* Recent members */}
       <div className="lg:col-span-1">
