@@ -17,7 +17,6 @@ import {
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import { toPng } from 'html-to-image';
-import { jsPDF } from 'jspdf';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import { formatDate, generateShareToken } from '@/lib/utils';
@@ -124,23 +123,6 @@ export default function RosterPublish({
     if (!supabase) return;
     setIsSendingEmail(true);
     try {
-      let pngBase64 = null;
-      let pdfBase64 = null;
-      if (rosterImageRef.current) {
-        try {
-          const dataUrl = await toPng(rosterImageRef.current, { backgroundColor: '#ffffff', pixelRatio: 2 });
-          pngBase64 = dataUrl.split(',')[1];
-          const imgEl = rosterImageRef.current;
-          const w = imgEl.offsetWidth;
-          const h = imgEl.offsetHeight;
-          const pdf = new jsPDF({ orientation: w > h ? 'landscape' : 'portrait', unit: 'px', format: [w, h] });
-          pdf.addImage(dataUrl, 'PNG', 0, 0, w, h);
-          pdfBase64 = pdf.output('datauristring').split(',')[1];
-        } catch (imgErr) {
-          console.warn('Image capture failed, sending without attachment:', imgErr);
-        }
-      }
-
       const eventIds = events.map((e) => e.id);
       const { data: songRows } = await supabase
         .from('event_songs')
@@ -180,8 +162,6 @@ export default function RosterPublish({
             phone: m.phone,
           })),
           songs_by_event: songsByEvent,
-          png_base64: pngBase64,
-          pdf_base64: pdfBase64,
           share_link: computedShareLink || shareLink,
         },
       });
