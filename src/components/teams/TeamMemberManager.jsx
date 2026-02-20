@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Search,
@@ -13,6 +13,9 @@ import {
   XCircle,
   ChevronDown,
   ChevronRight,
+  ShieldCheck,
+  ShieldOff,
+  Send,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatDate } from '@/lib/utils';
@@ -25,22 +28,32 @@ import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
 import InviteMemberModal from '@/components/teams/InviteMemberModal';
 import BulkAddMembersModal from '@/components/teams/BulkAddMembersModal';
+import useAuthStore from '@/stores/authStore';
+import { supabase } from '@/lib/supabase';
 
 export default function TeamMemberManager({
   members = [],
   roles = [],
   invitations = [],
+  orgRole,
+  adminUserIds = [],
+  onToggleAdmin,
   onAddMember,
   onBulkAddMembers,
   onRemoveMember,
   onUpdateMemberRoles,
   onResendInvitation,
   onCancelInvitation,
+  teamId,
 }) {
+  const isSuperAdmin = orgRole === 'super_admin';
   const [search, setSearch] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [removeConfirm, setRemoveConfirm] = useState(null);
+  const [requestDeleteFor, setRequestDeleteFor] = useState(null);
+  const [requestDeleteReason, setRequestDeleteReason] = useState('');
+  const [requestDeleteSubmitting, setRequestDeleteSubmitting] = useState(false);
   const [editRolesFor, setEditRolesFor] = useState(null);
   const [editRolesSelected, setEditRolesSelected] = useState([]);
   const [openMenu, setOpenMenu] = useState(null);
@@ -48,6 +61,7 @@ export default function TeamMemberManager({
   const [resendingId, setResendingId] = useState(null);
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
   const menuButtonRefs = useRef({});
+  const { user, profile, orgId } = useAuthStore();
 
   const filteredMembers = useMemo(() => {
     if (!search.trim()) return members;
@@ -105,6 +119,31 @@ export default function TeamMemberManager({
       toast.success(`Invite cancelled for ${invite.email}`);
     } catch {
       toast.error('Failed to cancel invite');
+    }
+  }
+
+  async function handleSubmitDeleteRequest() {
+    if (!supabase || !orgId || !user || !requestDeleteFor) return;
+    setRequestDeleteSubmitting(true);
+    try {
+      const { error } = await supabase.from('delete_requests').insert({
+        org_id: orgId,
+        requested_by: user.id,
+        requester_name: profile?.full_name || user.email,
+        target_type: 'member',
+        target_id: requestDeleteFor.id,
+        target_name: requestDeleteFor.name,
+        team_id: teamId || null,
+        reason: requestDeleteReason.trim() || null,
+      });
+      if (error) throw error;
+      toast.success('Deletion request sent to super admin');
+      setRequestDeleteFor(null);
+      setRequestDeleteReason('');
+    } catch {
+      toast.error('Failed to submit request');
+    } finally {
+      setRequestDeleteSubmitting(false);
     }
   }
 
@@ -192,9 +231,14 @@ export default function TeamMemberManager({
                       size="sm"
                     />
                     <div>
-                      <p className="font-medium text-surface-900">
-                        {member.name}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-medium text-surface-900">
+                          {member.name}
+                        </p>
+                        {adminUserIds.includes(member.user_id) && (
+                          <Badge color="warning" size="sm">Admin</Badge>
+                        )}
+                      </div>
                       {member.phone && (
                         <p className="text-xs text-surface-400">{member.phone}</p>
                       )}
@@ -256,7 +300,7 @@ export default function TeamMemberManager({
                           onClick={() => setOpenMenu(null)}
                         />
                         <div
-                          className="fixed z-50 w-48 bg-white rounded-lg border border-surface-200 shadow-lg py-1"
+                          className="fixed z-50 w-52 bg-white rounded-lg border border-surface-200 shadow-lg py-1"
                           style={{ top: menuPos.top, right: menuPos.right }}
                         >
                           <button
@@ -266,17 +310,55 @@ export default function TeamMemberManager({
                             <Pencil size={14} className="text-surface-400" />
                             Edit Roles
                           </button>
+
+                          {/* Make/Remove Admin — super_admin only */}
+                          {isSuperAdmin && (
+                            <>
+                              <div className="border-t border-surface-100 my-1" />
+                              {adminUserIds.includes(member.user_id) ? (
+                                <button
+                                  onClick={() => { onToggleAdmin?.(member); setOpenMenu(null); }}
+                                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
+                                >
+                                  <ShieldOff size={14} />
+                                  Remove Admin
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => { onToggleAdmin?.(member); setOpenMenu(null); }}
+                                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors cursor-pointer"
+                                >
+                                  <ShieldCheck size={14} />
+                                  Make Admin
+                                </button>
+                              )}
+                            </>
+                          )}
+
                           <div className="border-t border-surface-100 my-1" />
-                          <button
-                            onClick={() => {
-                              setRemoveConfirm(member);
-                              setOpenMenu(null);
-                            }}
-                            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                          >
-                            <Trash2 size={14} />
-                            Remove Member
-                          </button>
+                          {isSuperAdmin ? (
+                            <button
+                              onClick={() => {
+                                setRemoveConfirm(member);
+                                setOpenMenu(null);
+                              }}
+                              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                            >
+                              <Trash2 size={14} />
+                              Remove Member
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setRequestDeleteFor(member);
+                                setOpenMenu(null);
+                              }}
+                              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-orange-600 hover:bg-orange-50 transition-colors cursor-pointer"
+                            >
+                              <Send size={14} />
+                              Request Removal
+                            </button>
+                          )}
                         </div>
                       </>,
                       document.body
@@ -406,6 +488,36 @@ export default function TeamMemberManager({
           </Button>
           <Button variant="danger" onClick={handleRemoveMember} iconLeft={Trash2}>
             Remove
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Request Member Removal Modal (team_admin) */}
+      <Modal
+        open={!!requestDeleteFor}
+        onClose={() => { setRequestDeleteFor(null); setRequestDeleteReason(''); }}
+        title="Request Member Removal"
+        description={`Submit a request to your super admin to remove ${requestDeleteFor?.name} from this team.`}
+        width="sm"
+      >
+        <div className="px-1 pb-2">
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">
+            Reason (optional)
+          </label>
+          <textarea
+            value={requestDeleteReason}
+            onChange={(e) => setRequestDeleteReason(e.target.value)}
+            placeholder="Explain why this member should be removed..."
+            rows={3}
+            className="w-full rounded-lg border border-surface-200 px-3 py-2 text-sm text-surface-800 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100 resize-none"
+          />
+        </div>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => { setRequestDeleteFor(null); setRequestDeleteReason(''); }}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmitDeleteRequest} loading={requestDeleteSubmitting}>
+            Submit Request
           </Button>
         </Modal.Footer>
       </Modal>

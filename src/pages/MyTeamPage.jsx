@@ -74,7 +74,7 @@ export default function MyTeamPage() {
 
     supabase
       .from('team_members')
-      .select('id, user_id, profile:profiles(full_name, avatar_url)')
+      .select('id, user_id, profile:profiles(full_name, avatar_url), member_roles(team_role:team_roles(name))')
       .eq('team_id', selectedTeamId)
       .then(({ data }) =>
         setMembers(
@@ -83,6 +83,7 @@ export default function MyTeamPage() {
             user_id: tm.user_id,
             name: tm.profile?.full_name || 'Unknown',
             avatar_url: tm.profile?.avatar_url || '',
+            roles: (tm.member_roles ?? []).map((mr) => mr.team_role?.name).filter(Boolean),
           }))
         )
       );
@@ -340,7 +341,12 @@ export default function MyTeamPage() {
             {members.map((m) => (
               <div key={m.id} className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-surface-50">
                 <Avatar name={m.name} src={m.avatar_url} size="sm" />
-                <span className="text-sm text-surface-700 truncate">{m.name}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-surface-700 truncate">{m.name}</p>
+                  {m.roles?.length > 0 && (
+                    <p className="text-[10px] text-surface-400 truncate">{m.roles.join(', ')}</p>
+                  )}
+                </div>
               </div>
             ))}
           </div>

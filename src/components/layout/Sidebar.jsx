@@ -20,14 +20,23 @@ import useAuthStore from '@/stores/authStore';
 import useChatNotifStore from '@/stores/chatNotifStore';
 import { getInitials } from '@/lib/utils';
 
-// Full admin navigation
-const adminNavItems = [
+// Super admin — full navigation including Org Settings
+const superAdminNavItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/my-schedule', label: 'My Schedule', icon: CalendarDays },
   { to: '/my-team', label: 'My Team', icon: MessageSquare },
   { to: '/teams', label: 'Teams', icon: Users },
   { to: '/rosters', label: 'Rosters', icon: Calendar },
   { to: '/org/settings', label: 'Org Settings', icon: Settings },
+];
+
+// Team admin — can manage teams/rosters but not Org Settings
+const teamAdminNavItems = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/my-schedule', label: 'My Schedule', icon: CalendarDays },
+  { to: '/my-team', label: 'My Team', icon: MessageSquare },
+  { to: '/teams', label: 'Teams', icon: Users },
+  { to: '/rosters', label: 'Rosters', icon: Calendar },
 ];
 
 // Restricted member navigation
@@ -50,8 +59,12 @@ export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }
   const displayName = profile?.full_name || user?.user_metadata?.full_name || 'User';
   const initials = getInitials(displayName);
 
-  const isAdmin = orgRole === 'super_admin' || orgRole === 'team_admin';
-  const navItems = isAdmin ? adminNavItems : memberNavItems;
+  const navItems =
+    orgRole === 'super_admin'
+      ? superAdminNavItems
+      : orgRole === 'team_admin'
+        ? teamAdminNavItems
+        : memberNavItems;
   const roleLabel = orgRole === 'super_admin'
     ? 'Super Admin'
     : orgRole === 'team_admin'

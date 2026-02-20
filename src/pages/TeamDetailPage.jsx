@@ -33,8 +33,9 @@ export default function TeamDetailPage() {
     addBulkMembers,
   } = useTeamStore();
 
-  const { orgId } = useAuthStore();
+  const { orgId, orgRole } = useAuthStore();
   const [invitations, setInvitations] = useState([]);
+  const [adminUserIds, setAdminUserIds] = useState([]);
 
   // ── Fetch data on mount ───────────────────────────────────────────────────
 
@@ -55,6 +56,43 @@ export default function TeamDetailPage() {
     fetchTeamRoles(teamId);
     loadInvitations();
   }, [teamId, fetchTeam, fetchTeamMembers, fetchTeamRoles, loadInvitations]);
+
+  // Fetch which users have admin org roles
+  useEffect(() => {
+    if (!supabase || !orgId) return;
+    supabase
+      .from('org_members')
+      .select('user_id, role')
+      .eq('organization_id', orgId)
+      .in('role', ['super_admin', 'team_admin'])
+      .then(({ data }) => setAdminUserIds((data ?? []).map((om) => om.user_id)));
+  }, [orgId]);
+
+  const handleToggleAdmin = useCallback(async (member) => {
+    if (!supabase || !orgId) return;
+    const isAdmin = adminUserIds.includes(member.user_id);
+    const newRole = isAdmin ? 'member' : 'team_admin';
+    try {
+      const { error } = await supabase
+        .from('org_members')
+        .update({ role: newRole })
+        .eq('organization_id', orgId)
+        .eq('user_id', member.user_id);
+      if (error) throw error;
+      setAdminUserIds((prev) =>
+        newRole === 'team_admin'
+          ? [...prev, member.user_id]
+          : prev.filter((id) => id !== member.user_id)
+      );
+      toast.success(
+        newRole === 'team_admin'
+          ? `${member.name} is now a Team Admin`
+          : `${member.name} is now a Member`
+      );
+    } catch (err) {
+      toast.error('Failed to update admin status');
+    }
+  }, [orgId, adminUserIds]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -259,6 +297,9 @@ export default function TeamDetailPage() {
         members={members}
         roles={roles}
         invitations={invitations}
+        orgRole={orgRole}
+        adminUserIds={adminUserIds}
+        onToggleAdmin={handleToggleAdmin}
         onUpdateTeam={handleUpdateTeam}
         onDeleteTeam={handleDeleteTeam}
         onAddMember={handleAddMember}

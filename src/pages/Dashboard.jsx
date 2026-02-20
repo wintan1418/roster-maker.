@@ -16,6 +16,9 @@ import {
   Clock,
   Music,
   Loader2,
+  AlertTriangle,
+  Check,
+  X,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import Card from '@/components/ui/Card';
@@ -91,7 +94,7 @@ const GETTING_STARTED_STEPS = [
 ];
 
 export default function Dashboard() {
-  const { user, profile, orgRole } = useAuthStore();
+  const { user, profile, orgRole, orgId } = useAuthStore();
 
   const isAdmin = orgRole === 'super_admin' || orgRole === 'team_admin';
   const displayName = profile?.full_name || user?.user_metadata?.full_name || 'there';
@@ -212,6 +215,9 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* Delete Requests — super_admin only */}
+          {orgRole === 'super_admin' && <DeleteRequestsPanel orgId={orgId} />}
+
           {/* Features Overview */}
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <Card className="text-center py-8">
@@ -246,6 +252,136 @@ export default function Dashboard() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DELETE REQUESTS PANEL — super_admin only
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function DeleteRequestsPanel({ orgId }) {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(null); // request id being acted on
+
+  useEffect(() => {
+    if (!supabase || !orgId) return;
+    setLoading(true);
+    supabase
+      .from('delete_requests')
+      .select('*')
+      .eq('org_id', orgId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        setRequests(data ?? []);
+        setLoading(false);
+      });
+  }, [orgId]);
+
+  async function executeDelete(req) {
+    if (!supabase) return;
+    try {
+      if (req.target_type === 'team') {
+        await supabase.from('teams').delete().eq('id', req.target_id);
+      } else if (req.target_type === 'member') {
+        await supabase.from('team_members').delete().eq('id', req.target_id);
+      } else if (req.target_type === 'role') {
+        await supabase.from('team_roles').delete().eq('id', req.target_id);
+      }
+    } catch {
+      // Deletion might fail if already gone — treat as success
+    }
+  }
+
+  async function handleApprove(req) {
+    setActing(req.id);
+    try {
+      await executeDelete(req);
+      await supabase
+        .from('delete_requests')
+        .update({ status: 'approved', resolved_at: new Date().toISOString() })
+        .eq('id', req.id);
+      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+      toast.success(`Approved: ${req.target_name} deleted`);
+    } catch {
+      toast.error('Failed to approve request');
+    } finally {
+      setActing(null);
+    }
+  }
+
+  async function handleReject(req) {
+    setActing(req.id);
+    try {
+      await supabase
+        .from('delete_requests')
+        .update({ status: 'rejected', resolved_at: new Date().toISOString() })
+        .eq('id', req.id);
+      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+      toast.success('Request rejected');
+    } catch {
+      toast.error('Failed to reject request');
+    } finally {
+      setActing(null);
+    }
+  }
+
+  if (loading || requests.length === 0) return null;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <AlertTriangle size={16} className="text-orange-500" />
+        <h2 className="text-base font-semibold text-surface-900">
+          Pending Deletion Requests
+        </h2>
+        <span className="text-xs px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 font-semibold">
+          {requests.length}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {requests.map((req) => (
+          <Card key={req.id} className="border-orange-200 bg-orange-50/30">
+            <div className="flex items-start gap-4">
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-orange-100 shrink-0">
+                <AlertTriangle size={18} className="text-orange-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-surface-900">
+                  Delete {req.target_type}: <span className="text-orange-700">{req.target_name}</span>
+                </p>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  Requested by <span className="font-medium">{req.requester_name}</span>
+                  {' · '}{formatDate(req.created_at)}
+                </p>
+                {req.reason && (
+                  <p className="text-xs text-surface-600 mt-1 italic">"{req.reason}"</p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => handleReject(req)}
+                  disabled={acting === req.id}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-surface-600 border border-surface-200 hover:bg-surface-100 transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  <X size={13} />
+                  Reject
+                </button>
+                <button
+                  onClick={() => handleApprove(req)}
+                  disabled={acting === req.id}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-red-500 hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  <Check size={13} />
+                  Approve & Delete
+                </button>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }

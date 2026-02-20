@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import AppLayout from './components/layout/AppLayout';
 import PublicLayout from './components/layout/PublicLayout';
 import RequireAdmin from './components/layout/RequireAdmin';
+import RequireSuperAdmin from './components/layout/RequireSuperAdmin';
 
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -61,6 +62,10 @@ export default function App() {
             <Route path="/rosters" element={<RostersPage />} />
             <Route path="/rosters/new" element={<RosterEditorPage />} />
             <Route path="/rosters/:rosterId" element={<RosterEditorPage />} />
+          </Route>
+
+          {/* Super admin only — team_admin is redirected to /dashboard */}
+          <Route element={<RequireSuperAdmin />}>
             <Route path="/org/settings" element={<OrgSettings />} />
           </Route>
         </Route>

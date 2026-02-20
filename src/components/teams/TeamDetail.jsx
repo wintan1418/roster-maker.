@@ -15,6 +15,7 @@ import {
   Link2,
   Copy,
   RefreshCw,
+  Send,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Card from '@/components/ui/Card';
@@ -26,6 +27,8 @@ import Avatar from '@/components/ui/Avatar';
 import { formatDate } from '@/lib/utils';
 import TeamMemberManager from '@/components/teams/TeamMemberManager';
 import TeamRoleEditor from '@/components/teams/TeamRoleEditor';
+import useAuthStore from '@/stores/authStore';
+import { supabase } from '@/lib/supabase';
 
 const TABS = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -44,6 +47,9 @@ export default function TeamDetail({
   members = [],
   roles = [],
   invitations = [],
+  orgRole,
+  adminUserIds = [],
+  onToggleAdmin,
   onUpdateTeam,
   onDeleteTeam,
   onAddMember,
@@ -151,15 +157,25 @@ export default function TeamDetail({
           </div>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          iconLeft={Trash2}
-          onClick={() => setDeleteOpen(true)}
-          className="text-red-500 border-red-200 hover:bg-red-50 hover:border-red-300"
-        >
-          Delete Team
-        </Button>
+        {orgRole === 'super_admin' ? (
+          <Button
+            variant="outline"
+            size="sm"
+            iconLeft={Trash2}
+            onClick={() => setDeleteOpen(true)}
+            className="text-red-500 border-red-200 hover:bg-red-50 hover:border-red-300"
+          >
+            Delete Team
+          </Button>
+        ) : (
+          <RequestDeletionButton
+            label="Request Team Deletion"
+            targetType="team"
+            targetId={team.id}
+            targetName={team.name}
+            teamId={team.id}
+          />
+        )}
       </div>
 
       {/* Tab navigation */}
@@ -223,12 +239,16 @@ export default function TeamDetail({
             members={members}
             roles={roles}
             invitations={invitations}
+            orgRole={orgRole}
+            adminUserIds={adminUserIds}
+            onToggleAdmin={onToggleAdmin}
             onAddMember={onAddMember}
             onBulkAddMembers={onBulkAddMembers}
             onRemoveMember={onRemoveMember}
             onUpdateMemberRoles={onUpdateMemberRoles}
             onResendInvitation={onResendInvitation}
             onCancelInvitation={onCancelInvitation}
+            teamId={team.id}
           />
         )}
         {activeTab === 'roles' && (
@@ -477,5 +497,83 @@ function OverviewTab({ team, members, roles, onRegenerateJoinToken }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Button that opens a modal for submitting a deletion request to the super admin.
+ */
+function RequestDeletionButton({ label, targetType, targetId, targetName, teamId }) {
+  const { user, profile, orgId } = useAuthStore();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit() {
+    if (!supabase || !orgId || !user) return;
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.from('delete_requests').insert({
+        org_id: orgId,
+        requested_by: user.id,
+        requester_name: profile?.full_name || user.email,
+        target_type: targetType,
+        target_id: targetId,
+        target_name: targetName,
+        team_id: teamId || null,
+        reason: reason.trim() || null,
+      });
+      if (error) throw error;
+      toast.success('Deletion request sent to super admin');
+      setOpen(false);
+      setReason('');
+    } catch (err) {
+      toast.error('Failed to submit request');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        iconLeft={Send}
+        onClick={() => setOpen(true)}
+        className="text-orange-500 border-orange-200 hover:bg-orange-50 hover:border-orange-300"
+      >
+        {label}
+      </Button>
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Request Deletion"
+        description={`Submit a request to your super admin to delete "${targetName}".`}
+        width="sm"
+      >
+        <div className="px-1 pb-2">
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">
+            Reason (optional)
+          </label>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Explain why this should be deleted..."
+            rows={3}
+            className="w-full rounded-lg border border-surface-200 px-3 py-2 text-sm text-surface-800 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100 resize-none"
+          />
+        </div>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} loading={submitting}>
+            Submit Request
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    </>
   );
 }
