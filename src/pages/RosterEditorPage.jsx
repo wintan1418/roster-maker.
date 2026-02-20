@@ -503,22 +503,50 @@ export default function RosterEditorPage() {
         share_token: shareToken || data?.share_token,
       }));
 
-      // Post team chat notification
+      // Post team chat notification with full timetable
       if (roster.team_id && supabase) {
-        const link = shareToken ? `\n\n🔗 ${window.location.origin}/r/${shareToken}` : '';
-        const chatMsg = `📋 Roster Published: "${roster.title}"\n📅 ${roster.start_date} – ${roster.end_date}\n\nCheck your duties in My Schedule.${link}`;
+        const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        const fmtTime = (t) => { if (!t) return ''; const [h, m] = t.split(':'); const hr = parseInt(h, 10); return `${hr > 12 ? hr - 12 : hr || 12}:${m} ${hr >= 12 ? 'PM' : 'AM'}`; };
+
+        const lines = [];
+        lines.push(`📋 *Roster Published: ${roster.title}*`);
+        lines.push(`${roster.team_name || ''} | ${fmtDate(roster.start_date)} – ${fmtDate(roster.end_date)}`);
+        lines.push('');
+
+        const sortedEvents = [...events].sort((a, b) => a.date.localeCompare(b.date));
+        for (const event of sortedEvents) {
+          const timeStr = event.time ? ` (${fmtTime(event.time)})` : '';
+          lines.push(`📅 *${fmtDate(event.date)}* — ${event.name}${timeStr}`);
+          if (event.rehearsalTime) lines.push(`  🕐 Rehearsal: ${fmtTime(event.rehearsalTime)}`);
+
+          let hasAny = false;
+          for (const role of roleSlots) {
+            const val = currentAssignments[`${event.id}-${role.id}`];
+            if (!val?.memberId) continue;
+            const m = members.find((mb) => mb.id === val.memberId || mb.user_id === val.memberId);
+            if (!m) continue;
+            hasAny = true;
+            lines.push(`  🎵 ${role.name}: ${m.name}`);
+          }
+          if (!hasAny) lines.push('  _(No assignments yet)_');
+          lines.push('');
+        }
+
+        lines.push('Please check your duties and be ready. God bless our ministry! 🙏');
+        if (shareToken) lines.push(`\n🔗 ${window.location.origin}/r/${shareToken}`);
+
         await supabase.from('team_messages').insert({
           team_id: roster.team_id,
           user_id: '00000000-0000-0000-0000-000000000000',
           author_name: 'RosterFlow',
-          content: chatMsg,
+          content: lines.join('\n'),
         });
       }
     } catch (err) {
       console.error('Failed to publish roster:', err);
       toast.error('Failed to publish roster. Please try again.');
     }
-  }, [roster, publishRoster, roleSlots, currentAssignments]);
+  }, [roster, publishRoster, roleSlots, currentAssignments, events, members]);
 
   const handleBackToRosters = useCallback(() => {
     navigate('/rosters');
