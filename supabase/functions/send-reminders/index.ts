@@ -3,19 +3,31 @@
 // 4 hours before rehearsal and 1 hour before the service.
 //
 // Deploy: npx supabase functions deploy send-reminders
-// Secrets: RESEND_API_KEY, FROM_EMAIL
+// Secrets: GMAIL_USER, GMAIL_APP_PASSWORD, FROM_EMAIL, APP_URL
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import nodemailer from 'npm:nodemailer@6';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') ?? '';
-const FROM_EMAIL = Deno.env.get('FROM_EMAIL') ?? 'RosterFlow <onboarding@resend.dev>';
+const GMAIL_USER = Deno.env.get('GMAIL_USER') ?? '';
+const GMAIL_APP_PASSWORD = Deno.env.get('GMAIL_APP_PASSWORD') ?? '';
+const FROM_EMAIL = Deno.env.get('FROM_EMAIL') ?? `RosterFlow <${GMAIL_USER}>`;
 const APP_URL = Deno.env.get('APP_URL') ?? 'https://rosterflow-bice.vercel.app';
 const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
+
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: GMAIL_USER,
+    pass: GMAIL_APP_PASSWORD,
+  },
+});
 
 function fmtTime(t?: string) {
   if (!t) return '';
@@ -67,9 +79,7 @@ function buildReminderEmail({
       </p>
     </div>` : '';
 
-  return {
-    subject,
-    html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
 <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
   <div style="background:linear-gradient(135deg,${accentColor},${isRehearsal ? '#92400e' : '#1e3a8a'});padding:32px 24px;text-align:center;">
@@ -102,8 +112,9 @@ function buildReminderEmail({
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 24px;text-align:center;">
     <p style="margin:0;font-size:11px;color:#9ca3af;">Reminder from <strong>RosterFlow</strong> · ${teamName}</p>
   </div>
-</div></body></html>`,
-  };
+</div></body></html>`;
+
+  return { subject, html };
 }
 
 Deno.serve(async (req) => {
@@ -119,7 +130,6 @@ Deno.serve(async (req) => {
     const now = new Date();
     const todayDate = now.toISOString().split('T')[0];
 
-    // Fetch all published events for today
     const { data: events, error: evErr } = await supabase
       .from('roster_events')
       .select(`
@@ -132,19 +142,15 @@ Deno.serve(async (req) => {
     if (evErr) throw evErr;
 
     const remindersToSend: Array<{ event: Record<string, string>; type: '4h_rehearsal' | '1h_service' }> = [];
-
     const nowMs = now.getTime();
 
     for (const event of (events ?? [])) {
       if (!event.roster) continue;
 
-      // Check 4h rehearsal window
       if (event.rehearsal_time) {
-        const [rh, rm] = event.rehearsal_time.split(':').map(Number);
         const rehearsalMs = new Date(`${todayDate}T${event.rehearsal_time}`).getTime();
         const diff = rehearsalMs - nowMs;
         if (diff >= 3.75 * 3600 * 1000 && diff <= 4.25 * 3600 * 1000) {
-          // Check not already sent
           const { data: existing } = await supabase
             .from('reminder_logs')
             .select('id')
@@ -155,7 +161,6 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Check 1h service window
       if (event.event_time) {
         const serviceMs = new Date(`${todayDate}T${event.event_time}`).getTime();
         const diff = serviceMs - nowMs;
@@ -181,7 +186,6 @@ Deno.serve(async (req) => {
       const shareToken = roster.share_token as string;
       const shareLink = shareToken ? `${APP_URL}/r/${shareToken}` : '';
 
-      // Get assignments + members for this event
       const { data: assignmentRows } = await supabase
         .from('roster_assignments')
         .select(`
@@ -191,7 +195,6 @@ Deno.serve(async (req) => {
         `)
         .eq('roster_event_id', event.id);
 
-      // Get songs for this event
       const { data: songs } = await supabase
         .from('event_songs')
         .select('title, artist, key')
@@ -200,7 +203,7 @@ Deno.serve(async (req) => {
 
       const songList = songs ?? [];
 
-      // Build the chat reminder message with songlist
+      // Post to team chat
       const isRehearsal = type === '4h_rehearsal';
       let chatMsg = isRehearsal
         ? `🎹 *Rehearsal Reminder* — Starting in ~4 hours!\n📅 ${fmtDate(event.event_date)} · ${event.event_name}\n🕐 Rehearsal: ${fmtTime(event.rehearsal_time)}`
@@ -209,10 +212,8 @@ Deno.serve(async (req) => {
       if (songList.length > 0) {
         chatMsg += `\n\n🎵 *Today's Setlist:*\n${songList.map((s, i) => `${i + 1}. ${s.title}${s.key ? ` (Key: ${s.key})` : ''}`).join('\n')}`;
       }
-
       chatMsg += `\n\nPlease ensure you have your score and have listened to the songs. We're looking forward to worshipping with you! 🙌🙏`;
 
-      // Post to team chat
       await supabase.from('team_messages').insert({
         team_id: teamId,
         user_id: SYSTEM_USER,
@@ -220,8 +221,8 @@ Deno.serve(async (req) => {
         content: chatMsg,
       });
 
-      // Send individual emails
-      if (RESEND_API_KEY && assignmentRows) {
+      // Send individual reminder emails via Gmail
+      if (GMAIL_USER && assignmentRows) {
         for (const row of assignmentRows) {
           const profile = row.profile as Record<string, string>;
           if (!profile?.email) continue;
@@ -235,23 +236,19 @@ Deno.serve(async (req) => {
             teamName,
           });
 
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${RESEND_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
+          try {
+            await transporter.sendMail({
               from: FROM_EMAIL,
-              to: [profile.email],
+              to: profile.email,
               subject,
               html,
-            }),
-          });
+            });
+          } catch (mailErr) {
+            console.error(`Reminder email failed for ${profile.email}:`, mailErr);
+          }
         }
       }
 
-      // Log that we sent this reminder
       await supabase.from('reminder_logs').insert({
         roster_event_id: event.id,
         reminder_type: type,

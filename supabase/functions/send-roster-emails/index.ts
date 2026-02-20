@@ -1,17 +1,19 @@
 // Supabase Edge Function: send-roster-emails
-// Sends personalized roster emails with PNG + PDF attachments via Resend.
+// Sends personalized roster emails with PNG + PDF attachments via Gmail SMTP.
 // Deploy: npx supabase functions deploy send-roster-emails
-// Secrets: npx supabase secrets set RESEND_API_KEY=re_xxx FROM_EMAIL="RosterFlow <noreply@yourdomain.com>"
+// Secrets: GMAIL_USER, GMAIL_APP_PASSWORD, FROM_EMAIL, APP_URL
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import nodemailer from 'npm:nodemailer@6';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') ?? '';
-const FROM_EMAIL = Deno.env.get('FROM_EMAIL') ?? 'RosterFlow <onboarding@resend.dev>';
+const GMAIL_USER = Deno.env.get('GMAIL_USER') ?? '';
+const GMAIL_APP_PASSWORD = Deno.env.get('GMAIL_APP_PASSWORD') ?? '';
+const FROM_EMAIL = Deno.env.get('FROM_EMAIL') ?? `RosterFlow <${GMAIL_USER}>`;
 const APP_URL = Deno.env.get('APP_URL') ?? 'https://rosterflow-bice.vercel.app';
 
 interface Member { id: string; user_id: string; name: string; email?: string; phone?: string; }
@@ -57,7 +59,6 @@ function buildEmailHtml({
   const rosterTitle = roster.title || 'Roster';
   const dateRange = `${fmt(roster.start_date)} – ${fmt(roster.end_date)}`;
 
-  // My assignments rows
   const myRows = myAssignments.map(({ event, role }) => {
     const rTime = event.rehearsal_time ? `<br><span style="color:#d97706;font-size:12px;">🕐 Rehearsal: ${fmtTime(event.rehearsal_time)}</span>` : '';
     const sTime = event.time ? `<br><span style="color:#6b7280;font-size:12px;">⛪ Service: ${fmtTime(event.time)}</span>` : '';
@@ -73,7 +74,6 @@ function buildEmailHtml({
       </tr>`;
   }).join('');
 
-  // Full timetable
   const timetableRows = events.map((event) => {
     const eventAssignments = Object.entries(assignments)
       .filter(([key]) => key.startsWith(event.id + '-'))
@@ -106,7 +106,6 @@ function buildEmailHtml({
       </tr>`;
   }).join('');
 
-  // All songs across events
   const allSongs = Object.entries(songsByEvent).flatMap(([eventId, songs]) => {
     const event = events.find(e => e.id === eventId);
     return songs.map(s => ({ ...s, eventName: event?.name || '' }));
@@ -136,7 +135,6 @@ function buildEmailHtml({
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
 <div style="max-width:620px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
-  <!-- Header -->
   <div style="background:linear-gradient(135deg,#1a3460 0%,#0f1f3d 100%);padding:36px 24px;text-align:center;">
     <div style="font-size:28px;margin-bottom:8px;">🎶</div>
     <h1 style="margin:0;color:#f59e0b;font-size:22px;font-weight:800;letter-spacing:-0.5px;">${teamName}</h1>
@@ -144,7 +142,6 @@ function buildEmailHtml({
     <p style="margin:4px 0 0;color:rgba(255,255,255,0.5);font-size:12px;">${dateRange}</p>
   </div>
 
-  <!-- Greeting -->
   <div style="padding:28px 24px 0;">
     <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#111827;">Hi ${memberName}! 👋</p>
     <p style="margin:0;color:#6b7280;font-size:14px;line-height:1.6;">
@@ -153,7 +150,6 @@ function buildEmailHtml({
     </p>
   </div>
 
-  <!-- My Assignments -->
   <div style="padding:24px;">
     <div style="background:#eff6ff;border-radius:12px;border:1px solid #bfdbfe;overflow:hidden;">
       <div style="background:#1d4ed8;padding:12px 16px;">
@@ -167,7 +163,6 @@ function buildEmailHtml({
     </div>
   </div>
 
-  <!-- Full Timetable -->
   <div style="padding:0 24px 24px;">
     <div style="border-radius:12px;border:1px solid #e5e7eb;overflow:hidden;">
       <div style="background:#1f2937;padding:12px 16px;">
@@ -189,7 +184,6 @@ function buildEmailHtml({
 
   ${songlistHtml}
 
-  <!-- CTA -->
   <div style="padding:0 24px 32px;text-align:center;">
     ${shareLink ? `<a href="${shareLink}" style="display:inline-block;background:linear-gradient(135deg,#1a3460,#0f1f3d);color:white;text-decoration:none;padding:14px 32px;border-radius:50px;font-weight:700;font-size:15px;letter-spacing:0.02em;">View Full Roster Online →</a>` : ''}
     <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;">
@@ -197,7 +191,6 @@ function buildEmailHtml({
     </p>
   </div>
 
-  <!-- Footer -->
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 24px;text-align:center;">
     <p style="margin:0;font-size:12px;color:#9ca3af;">
       Sent by <strong style="color:#374151;">RosterFlow</strong> · ${teamName}<br>
@@ -208,6 +201,16 @@ function buildEmailHtml({
 </div>
 </body></html>`;
 }
+
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: GMAIL_USER,
+    pass: GMAIL_APP_PASSWORD,
+  },
+});
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -225,9 +228,9 @@ Deno.serve(async (req) => {
       share_link: shareLink = '',
     } = await req.json();
 
-    if (!RESEND_API_KEY) {
+    if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
       return new Response(
-        JSON.stringify({ error: 'RESEND_API_KEY not configured. Set it with: npx supabase secrets set RESEND_API_KEY=re_xxx' }),
+        JSON.stringify({ error: 'GMAIL_USER and GMAIL_APP_PASSWORD secrets not configured.' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -268,34 +271,32 @@ Deno.serve(async (req) => {
         attachments.push({
           filename: `${(roster.title || 'roster').replace(/\s+/g, '_')}.png`,
           content: png_base64,
-          type: 'image/png',
+          encoding: 'base64',
+          contentType: 'image/png',
         });
       }
       if (pdf_base64) {
         attachments.push({
           filename: `${(roster.title || 'roster').replace(/\s+/g, '_')}.pdf`,
           content: pdf_base64,
-          type: 'application/pdf',
+          encoding: 'base64',
+          contentType: 'application/pdf',
         });
       }
 
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      try {
+        await transporter.sendMail({
           from: FROM_EMAIL,
-          to: [member.email],
+          to: member.email,
           subject: `📋 ${roster.team_name || 'Team'} Roster: ${roster.title} — You're Scheduled!`,
           html,
           attachments,
-        }),
-      });
-
-      const result = await res.json();
-      results.push({ email: member.email, status: res.ok ? 'sent' : 'error', resend: result });
+        });
+        results.push({ email: member.email, status: 'sent' });
+      } catch (mailErr) {
+        console.error(`Failed to send to ${member.email}:`, mailErr);
+        results.push({ email: member.email, status: 'error', error: (mailErr as Error).message });
+      }
     }
 
     return new Response(
