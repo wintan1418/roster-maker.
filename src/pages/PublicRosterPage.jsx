@@ -154,7 +154,7 @@ export default function PublicRosterPage() {
       const eventAssignments = displayAssignments[event.id] || {};
       for (const [role, memberName] of Object.entries(eventAssignments)) {
         if (memberName === selectedMember.name) {
-          duties.push({ date: event.date, eventLabel: event.label, role });
+          duties.push({ date: event.date, eventLabel: event.name, role });
         }
       }
     }
