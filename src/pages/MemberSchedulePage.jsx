@@ -245,11 +245,9 @@ export default function MemberSchedulePage() {
                     .eq('user_id', user.id);
 
                 const myTeamMemberIds = new Set((tmRows || []).map((r) => r.id));
-                toast(`Step 1: Found ${myTeamMemberIds.size} team_member row(s) for you`, { duration: 6000, icon: '🔍' });
 
                 if (myTeamMemberIds.size === 0) {
                     // user isn't in this team — nothing to show
-                    toast.error(`Not found in team_members for "${selectedTeam.name}" (user.id: ${user.id?.slice(0,8)}...)`, { duration: 8000 });
                     setPersonalAssignments([]);
                     setGeneralRoster(null);
                     setLoading(false);
@@ -266,8 +264,6 @@ export default function MemberSchedulePage() {
                     .limit(5);
 
                 if (rErr) throw rErr;
-
-                toast(`Step 2: Found ${rosters?.length ?? 0} published roster(s)`, { duration: 6000, icon: '🔍' });
 
                 if (!rosters || rosters.length === 0) {
                     setPersonalAssignments([]);
@@ -372,20 +368,6 @@ export default function MemberSchedulePage() {
                         }
                     }
                 }
-
-                // Debug: sample memberId values stored in DB vs user's team_member IDs
-                const allMemberIds = new Set();
-                for (const roster of rosters) {
-                    const sf = roster.signature_fields;
-                    if (!sf || typeof sf !== 'object') continue;
-                    for (const val of Object.values(sf.assignments || {})) {
-                        if (val?.memberId) allMemberIds.add(val.memberId);
-                    }
-                }
-                const sampleIds = [...allMemberIds].slice(0, 3).map(id => id.slice(0, 8)).join(', ');
-                const myIds = [...myTeamMemberIds].map(id => id.slice(0, 8)).join(', ');
-                toast(`Step 3: DB memberIds (sample): [${sampleIds || 'none'}]\nYour team_member IDs: [${myIds}]`, { duration: 10000, icon: '🔍' });
-                toast(`Step 3: total assignments in DB: ${allMemberIds.size}, matched to you: ${myDuties.length}`, { duration: 8000, icon: myDuties.length > 0 ? '✅' : '❌' });
 
                 myDuties.sort((a, b) => new Date(a.date) - new Date(b.date));
                 setPersonalAssignments(myDuties);
