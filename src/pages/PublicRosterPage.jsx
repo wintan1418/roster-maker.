@@ -81,12 +81,15 @@ export default function PublicRosterPage() {
     }
 
     const result = {};
+    const allEvents = rosterData.events || [];
     for (const [key, value] of Object.entries(assignments || {})) {
       if (!value?.memberId) continue;
-      const dashIdx = key.indexOf('-');
-      if (dashIdx === -1) continue;
-      const eventId = key.slice(0, dashIdx);
-      const roleSlotId = key.slice(dashIdx + 1);
+      // Keys are "eventId-roleSlotId" but both are UUIDs containing dashes.
+      // Use startsWith to find the correct event.
+      const evt = allEvents.find((e) => key.startsWith(e.id + '-'));
+      if (!evt) continue;
+      const eventId = evt.id;
+      const roleSlotId = key.slice(eventId.length + 1);
       const roleName = roleById[roleSlotId];
       const member = memberById[value.memberId];
       if (!roleName || !member) continue;

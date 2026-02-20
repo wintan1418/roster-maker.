@@ -81,6 +81,7 @@ export default function RosterPublish({
 
   const [isPublished, setIsPublished] = useState(alreadyPublished);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [sendEmail, setSendEmail] = useState(true);
   const [generateLink, setGenerateLink] = useState(true);
   const [shareLink, setShareLink] = useState(
@@ -119,24 +120,16 @@ export default function RosterPublish({
     [members]
   );
 
-  const handlePublish = async () => {
-    setIsPublishing(true);
+  const handleSendEmails = async (computedShareLink) => {
+    if (!supabase) return;
+    setIsSendingEmail(true);
     try {
-      const token = generateLink ? generateShareToken(16) : null;
-      const computedShareLink = token ? `${window.location.origin}/r/${token}` : shareLink;
-
-      // 1. Capture roster image as PNG + PDF for email attachments
       let pngBase64 = null;
       let pdfBase64 = null;
       if (rosterImageRef.current) {
         try {
-          const dataUrl = await toPng(rosterImageRef.current, {
-            backgroundColor: '#ffffff',
-            pixelRatio: 2,
-          });
+          const dataUrl = await toPng(rosterImageRef.current, { backgroundColor: '#ffffff', pixelRatio: 2 });
           pngBase64 = dataUrl.split(',')[1];
-
-          // Build PDF from the PNG
           const imgEl = rosterImageRef.current;
           const w = imgEl.offsetWidth;
           const h = imgEl.offsetHeight;
@@ -144,68 +137,77 @@ export default function RosterPublish({
           pdf.addImage(dataUrl, 'PNG', 0, 0, w, h);
           pdfBase64 = pdf.output('datauristring').split(',')[1];
         } catch (imgErr) {
-          console.warn('Image capture failed, continuing without attachment:', imgErr);
+          console.warn('Image capture failed, sending without attachment:', imgErr);
         }
       }
 
-      // 2. Publish the roster (updates DB status + share_token)
+      const eventIds = events.map((e) => e.id);
+      const { data: songRows } = await supabase
+        .from('event_songs')
+        .select('roster_event_id, title, artist, key, sort_order')
+        .in('roster_event_id', eventIds)
+        .order('sort_order');
+
+      const songsByEvent = {};
+      for (const s of (songRows ?? [])) {
+        if (!songsByEvent[s.roster_event_id]) songsByEvent[s.roster_event_id] = [];
+        songsByEvent[s.roster_event_id].push({ title: s.title, artist: s.artist, key: s.key });
+      }
+
+      const { error: fnErr } = await supabase.functions.invoke('send-roster-emails', {
+        body: {
+          roster: {
+            title: roster.title,
+            team_name: roster.team_name,
+            start_date: roster.start_date,
+            end_date: roster.end_date,
+          },
+          events: events.map((e) => ({
+            id: e.id,
+            name: e.name,
+            date: e.date,
+            time: e.time,
+            rehearsal_time: e.rehearsalTime,
+            rehearsal_note: e.rehearsalNote,
+          })),
+          roles,
+          assignments,
+          members: members.map((m) => ({
+            id: m.id,
+            user_id: m.user_id,
+            name: m.name,
+            email: m.email,
+            phone: m.phone,
+          })),
+          songs_by_event: songsByEvent,
+          png_base64: pngBase64,
+          pdf_base64: pdfBase64,
+          share_link: computedShareLink || shareLink,
+        },
+      });
+      if (fnErr) toast.error('Email sending failed: ' + fnErr.message);
+      else toast.success('Emails sent to all assigned members!', { icon: '📧' });
+    } catch (emailErr) {
+      console.error('Email sending failed:', emailErr);
+      toast.error('Failed to send emails. Please try again.');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
+  const handlePublish = async () => {
+    setIsPublishing(true);
+    try {
+      const token = generateLink ? generateShareToken(16) : null;
+      const computedShareLink = token ? `${window.location.origin}/r/${token}` : shareLink;
+
+      // 1. Publish the roster (updates DB status + share_token)
       await onConfirmPublish?.(token);
       if (token) setShareLink(computedShareLink);
 
-      // 3. Send emails if opted in
-      if (sendEmail && supabase) {
-        try {
-          // Fetch songs grouped by event
-          const eventIds = events.map((e) => e.id);
-          const { data: songRows } = await supabase
-            .from('event_songs')
-            .select('roster_event_id, title, artist, key, sort_order')
-            .in('roster_event_id', eventIds)
-            .order('sort_order');
-
-          const songsByEvent = {};
-          for (const s of (songRows ?? [])) {
-            if (!songsByEvent[s.roster_event_id]) songsByEvent[s.roster_event_id] = [];
-            songsByEvent[s.roster_event_id].push({ title: s.title, artist: s.artist, key: s.key });
-          }
-
-          // Call send-roster-emails edge function
-          const { error: fnErr } = await supabase.functions.invoke('send-roster-emails', {
-            body: {
-              roster: {
-                title: roster.title,
-                team_name: roster.team_name,
-                start_date: roster.start_date,
-                end_date: roster.end_date,
-              },
-              events: events.map((e) => ({
-                id: e.id,
-                name: e.name,
-                date: e.date,
-                time: e.time,
-                rehearsal_time: e.rehearsalTime,
-                rehearsal_note: e.rehearsalNote,
-              })),
-              roles,
-              assignments,
-              members: members.map((m) => ({
-                id: m.id,
-                user_id: m.user_id,
-                name: m.name,
-                email: m.email,
-                phone: m.phone,
-              })),
-              songs_by_event: songsByEvent,
-              png_base64: pngBase64,
-              pdf_base64: pdfBase64,
-              share_link: computedShareLink,
-            },
-          });
-          if (fnErr) console.warn('Email function error:', fnErr.message);
-          else toast.success('Emails sent to team members!', { icon: '📧' });
-        } catch (emailErr) {
-          console.warn('Email sending failed:', emailErr);
-        }
+      // 2. Send emails if opted in
+      if (sendEmail) {
+        await handleSendEmails(computedShareLink);
       }
 
       setIsPublished(true);
@@ -425,13 +427,21 @@ export default function RosterPublish({
         {hiddenRosterImage}
 
         {/* Actions */}
-        <div className="flex items-center justify-center gap-3">
+        <div className="flex items-center justify-center gap-3 flex-wrap">
           <Button
             variant="outline"
             onClick={onBack}
             iconLeft={ArrowLeft}
           >
-            Back to Rosters
+            Edit Roster
+          </Button>
+          <Button
+            variant="outline"
+            iconLeft={Mail}
+            loading={isSendingEmail}
+            onClick={() => handleSendEmails(shareLink)}
+          >
+            Re-send Emails
           </Button>
           {shareLink && (
             <Button
