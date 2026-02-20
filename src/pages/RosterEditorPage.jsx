@@ -541,6 +541,19 @@ export default function RosterEditorPage() {
     const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
     const fmtTime = (t) => { if (!t) return ''; const [h, m] = t.split(':'); const hr = parseInt(h, 10); return `${hr > 12 ? hr - 12 : hr || 12}:${m} ${hr >= 12 ? 'PM' : 'AM'}`; };
 
+    // Fetch songs for all events
+    const eventIds = events.map((e) => e.id);
+    const { data: songRows } = await supabase
+      .from('event_songs')
+      .select('roster_event_id, title, key, sort_order')
+      .in('roster_event_id', eventIds)
+      .order('sort_order');
+    const songsByEvent = {};
+    for (const s of (songRows ?? [])) {
+      if (!songsByEvent[s.roster_event_id]) songsByEvent[s.roster_event_id] = [];
+      songsByEvent[s.roster_event_id].push(s);
+    }
+
     const lines = [];
     lines.push(`📋 *Roster Published: ${roster.title}*`);
     lines.push(`${roster.team_name || ''} | ${fmtDate(roster.start_date)} – ${fmtDate(roster.end_date)}`);
@@ -567,6 +580,11 @@ export default function RosterEditorPage() {
         lines.push(`  🎵 ${role.name}: ${m.name}`);
       }
       if (!hasAny) lines.push('  _(No assignments yet)_');
+
+      const songs = songsByEvent[event.id] || [];
+      if (songs.length > 0) {
+        lines.push(`  🎶 Songs: ${songs.map((s) => `${s.title}${s.key ? ` (${s.key})` : ''}`).join(', ')}`);
+      }
       lines.push('');
     }
 
