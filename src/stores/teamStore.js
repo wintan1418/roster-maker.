@@ -75,6 +75,17 @@ const useTeamStore = create((set, get) => ({
         .single();
 
       if (error) throw error;
+
+      // Auto-add the creator as a team member
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase
+          .from('team_members')
+          .insert({ team_id: team.id, user_id: user.id })
+          .select()
+          .maybeSingle();
+      }
+
       set((state) => ({ teams: [...state.teams, team] }));
       return { data: team, error: null };
     } catch (err) {
