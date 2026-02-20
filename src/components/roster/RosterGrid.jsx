@@ -571,7 +571,7 @@ function SetlistModal({ event, teamId, roles = [], assignments = {}, members = [
       sort_order: songs.length,
       added_by: user?.id,
     }).select().single();
-    if (error) { toast.error('Failed to add song'); }
+    if (error) { console.error('Song insert error:', error); toast.error(error.message || 'Failed to add song'); }
     else { setSongs((prev) => [...prev, data]); setTitle(''); setArtist(''); setKey(''); }
     setAdding(false);
   }
