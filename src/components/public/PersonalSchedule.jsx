@@ -75,7 +75,7 @@ export default function PersonalSchedule({
               <Music size={12} />
               {team.name}
             </Badge>
-            {member.roles.map((role) => (
+            {(member.roles || []).map((role) => (
               <Badge key={role} color="default" size="sm">
                 {role}
               </Badge>
