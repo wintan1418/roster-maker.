@@ -4,6 +4,8 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import useAuth from '@/hooks/useAuth';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
+import useAuthStore from '@/stores/authStore';
+import useChatNotifStore from '@/stores/chatNotifStore';
 
 const pageTitles = {
   '/dashboard': 'Dashboard',
@@ -26,6 +28,9 @@ export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, initialized } = useAuth();
+  const profile = useAuthStore((s) => s.profile);
+  const initNotif = useChatNotifStore((s) => s.init);
+  const cleanupNotif = useChatNotifStore((s) => s.cleanup);
 
   const title = getPageTitle(location.pathname);
 
@@ -35,6 +40,14 @@ export default function AppLayout() {
       navigate('/login', { replace: true, state: { from: location.pathname } });
     }
   }, [initialized, user, navigate, location.pathname]);
+
+  // Init chat notifications when user is ready
+  useEffect(() => {
+    if (user?.id) {
+      initNotif(user.id, profile?.full_name || '');
+    }
+    return () => cleanupNotif();
+  }, [user?.id, profile?.full_name, initNotif, cleanupNotif]);
 
   if (!initialized) {
     return (

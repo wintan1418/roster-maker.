@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import useAuthStore from '@/stores/authStore';
+import useChatNotifStore from '@/stores/chatNotifStore';
 import Avatar from '@/components/ui/Avatar';
 
 const SYSTEM_USER = '00000000-0000-0000-0000-000000000000';
@@ -28,6 +29,7 @@ const EMOJIS = [
 
 export default function MyTeamPage() {
   const { user, profile } = useAuthStore();
+  const markRead = useChatNotifStore((s) => s.markRead);
   const [teams, setTeams] = useState([]);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [members, setMembers] = useState([]);
@@ -114,6 +116,13 @@ export default function MyTeamPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Mark messages as read when the selected team changes or new messages arrive
+  useEffect(() => {
+    if (user?.id && selectedTeamId) {
+      markRead(user.id, selectedTeamId);
+    }
+  }, [selectedTeamId, messages.length, user?.id, markRead]);
 
   // ── @mention filter ─────────────────────────────────────────────────────
   const mentionMatches = useMemo(() => {

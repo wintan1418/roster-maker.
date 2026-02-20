@@ -17,6 +17,7 @@ import {
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import useAuthStore from '@/stores/authStore';
+import useChatNotifStore from '@/stores/chatNotifStore';
 import { getInitials } from '@/lib/utils';
 
 // Full admin navigation
@@ -41,6 +42,10 @@ export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }
   const { user, profile, orgRole, signOut, updateProfile } = useAuthStore();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
+  const unreadCounts = useChatNotifStore((s) => s.unreadCounts);
+  const hasMention = useChatNotifStore((s) => s.hasMention);
+  const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+  const anyMention = Object.values(hasMention).some(Boolean);
 
   const displayName = profile?.full_name || user?.user_metadata?.full_name || 'User';
   const initials = getInitials(displayName);
@@ -110,25 +115,54 @@ export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-          {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={mobile ? onClose : undefined}
-              className={({ isActive }) =>
-                clsx(
-                  'group flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
-                  collapsed && !mobile ? 'justify-center' : 'gap-3',
-                  isActive
-                    ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/25'
-                    : 'text-surface-300 hover:bg-white/10 hover:text-white'
-                )
-              }
-            >
-              <Icon className="h-5 w-5 shrink-0" />
-              {(!collapsed || mobile) && <span className="whitespace-nowrap">{label}</span>}
-            </NavLink>
-          ))}
+          {navItems.map(({ to, label, icon: Icon }) => {
+            const isChat = to === '/my-team';
+            const badgeCount = isChat ? totalUnread : 0;
+            const isMentionHere = isChat && anyMention;
+
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                onClick={mobile ? onClose : undefined}
+                className={({ isActive }) =>
+                  clsx(
+                    'group flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
+                    collapsed && !mobile ? 'justify-center' : 'gap-3',
+                    isActive
+                      ? 'bg-primary-600 text-white shadow-lg shadow-primary-600/25'
+                      : 'text-surface-300 hover:bg-white/10 hover:text-white'
+                  )
+                }
+              >
+                {/* Icon with dot badge when collapsed */}
+                <div className="relative shrink-0">
+                  <Icon className="h-5 w-5" />
+                  {isChat && badgeCount > 0 && collapsed && !mobile && (
+                    <span className={clsx(
+                      'absolute -top-1 -right-1 w-2 h-2 rounded-full',
+                      isMentionHere ? 'bg-yellow-400' : 'bg-red-500'
+                    )} />
+                  )}
+                </div>
+
+                {/* Label + badge when expanded */}
+                {(!collapsed || mobile) && (
+                  <>
+                    <span className="whitespace-nowrap flex-1">{label}</span>
+                    {isChat && badgeCount > 0 && (
+                      <span className={clsx(
+                        'min-w-[20px] h-5 rounded-full flex items-center justify-center px-1 text-[10px] font-bold text-white leading-none',
+                        isMentionHere ? 'bg-yellow-500' : 'bg-red-500'
+                      )}>
+                        {badgeCount > 99 ? '99+' : badgeCount}
+                      </span>
+                    )}
+                  </>
+                )}
+              </NavLink>
+            );
+          })}
         </nav>
 
         {/* Collapse toggle (desktop only) */}
