@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Search,
   UserPlus,
@@ -45,6 +46,8 @@ export default function TeamMemberManager({
   const [openMenu, setOpenMenu] = useState(null);
   const [invitesExpanded, setInvitesExpanded] = useState(true);
   const [resendingId, setResendingId] = useState(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
+  const menuButtonRefs = useRef({});
 
   const filteredMembers = useMemo(() => {
     if (!search.trim()) return members;
@@ -221,25 +224,41 @@ export default function TeamMemberManager({
 
                 {/* Actions */}
                 <Table.Cell align="right">
-                  <div className="relative inline-block">
+                  <div className="inline-block">
                     <Button
+                      ref={(el) => { menuButtonRefs.current[member.id] = el; }}
                       variant="ghost"
                       size="sm"
                       iconLeft={MoreHorizontal}
-                      onClick={() =>
-                        setOpenMenu(openMenu === member.id ? null : member.id)
-                      }
+                      onClick={() => {
+                        if (openMenu === member.id) {
+                          setOpenMenu(null);
+                        } else {
+                          const btn = menuButtonRefs.current[member.id];
+                          if (btn) {
+                            const rect = btn.getBoundingClientRect();
+                            setMenuPos({
+                              top: rect.bottom + 4,
+                              right: window.innerWidth - rect.right,
+                            });
+                          }
+                          setOpenMenu(member.id);
+                        }
+                      }}
                       aria-label="Member actions"
                     />
 
-                    {openMenu === member.id && (
+                    {openMenu === member.id && createPortal(
                       <>
                         {/* Backdrop to close menu */}
                         <div
-                          className="fixed inset-0 z-10"
+                          className="fixed inset-0 z-40"
                           onClick={() => setOpenMenu(null)}
                         />
-                        <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-white rounded-lg border border-surface-200 shadow-lg py-1 animate-in fade-in zoom-in-95">
+                        <div
+                          className="fixed z-50 w-48 bg-white rounded-lg border border-surface-200 shadow-lg py-1"
+                          style={{ top: menuPos.top, right: menuPos.right }}
+                        >
                           <button
                             onClick={() => openEditRoles(member)}
                             className="flex items-center gap-2 w-full px-3 py-2 text-sm text-surface-700 hover:bg-surface-50 transition-colors cursor-pointer"
@@ -259,7 +278,8 @@ export default function TeamMemberManager({
                             Remove Member
                           </button>
                         </div>
-                      </>
+                      </>,
+                      document.body
                     )}
                   </div>
                 </Table.Cell>
