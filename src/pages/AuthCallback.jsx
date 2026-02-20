@@ -16,46 +16,10 @@ export default function AuthCallback() {
       return;
     }
 
-    async function processSignIn(session) {
-      const user = session.user;
-
+    async function processSignIn() {
       try {
-        // Check for pending invitations for this email
-        const { data: invitations } = await supabase
-          .from('invitations')
-          .select('*')
-          .eq('email', user.email.toLowerCase())
-          .eq('status', 'pending');
-
-        if (invitations?.length > 0) {
-          for (const invite of invitations) {
-            // Add to org
-            if (invite.org_id) {
-              await supabase
-                .from('org_members')
-                .upsert(
-                  { organization_id: invite.org_id, user_id: user.id, role: invite.role || 'member' },
-                  { onConflict: 'organization_id,user_id' }
-                );
-            }
-
-            // Add to team
-            if (invite.team_id) {
-              await supabase
-                .from('team_members')
-                .upsert(
-                  { team_id: invite.team_id, user_id: user.id },
-                  { onConflict: 'team_id,user_id' }
-                );
-            }
-
-            // Mark invitation accepted
-            await supabase
-              .from('invitations')
-              .update({ status: 'accepted' })
-              .eq('id', invite.id);
-          }
-        }
+        // Server-side function bypasses RLS — safely adds user to org + team
+        await supabase.rpc('accept_pending_invitations');
       } catch (err) {
         console.error('Failed to process invitation:', err.message);
       }
@@ -67,7 +31,7 @@ export default function AuthCallback() {
       (event, session) => {
         if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
           subscription.unsubscribe();
-          processSignIn(session);
+          processSignIn();
         }
       }
     );
@@ -76,7 +40,7 @@ export default function AuthCallback() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         subscription.unsubscribe();
-        processSignIn(session);
+        processSignIn();
       }
     });
 
