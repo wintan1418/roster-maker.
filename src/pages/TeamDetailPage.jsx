@@ -313,6 +313,7 @@ export default function TeamDetailPage() {
         onEditRole={handleEditRole}
         onDeleteRole={handleDeleteRole}
         onLoadTemplate={handleLoadTemplate}
+        onRefresh={() => fetchTeamMembers(teamId)}
       />
     </div>
   );

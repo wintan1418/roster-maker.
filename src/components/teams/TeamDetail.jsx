@@ -63,6 +63,7 @@ export default function TeamDetail({
   onDeleteRole,
   onLoadTemplate,
   onRegenerateJoinToken,
+  onRefresh,
 }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [editingName, setEditingName] = useState(false);
@@ -248,6 +249,7 @@ export default function TeamDetail({
             onUpdateMemberRoles={onUpdateMemberRoles}
             onResendInvitation={onResendInvitation}
             onCancelInvitation={onCancelInvitation}
+            onRefresh={onRefresh}
             teamId={team.id}
           />
         )}

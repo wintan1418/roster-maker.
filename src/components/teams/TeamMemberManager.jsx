@@ -29,6 +29,7 @@ import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
 import InviteMemberModal from '@/components/teams/InviteMemberModal';
 import BulkAddMembersModal from '@/components/teams/BulkAddMembersModal';
+import AddFromOrgModal from '@/components/teams/AddFromOrgModal';
 import useAuthStore from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 
@@ -45,12 +46,14 @@ export default function TeamMemberManager({
   onUpdateMemberRoles,
   onResendInvitation,
   onCancelInvitation,
+  onRefresh,
   teamId,
 }) {
   const isSuperAdmin = orgRole === 'super_admin';
   const [search, setSearch] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
+  const [addFromOrgOpen, setAddFromOrgOpen] = useState(false);
   const [removeConfirm, setRemoveConfirm] = useState(null);
   const [requestDeleteFor, setRequestDeleteFor] = useState(null);
   const [requestDeleteReason, setRequestDeleteReason] = useState('');
@@ -232,6 +235,9 @@ export default function TeamMemberManager({
           </Button>
           <Button variant="outline" iconLeft={Users} onClick={() => setBulkAddOpen(true)}>
             Bulk Add
+          </Button>
+          <Button variant="outline" onClick={() => setAddFromOrgOpen(true)}>
+            Add from Org
           </Button>
         </div>
       </div>
@@ -504,6 +510,16 @@ export default function TeamMemberManager({
         roles={roles}
         existingEmails={members.map((m) => m.email)}
         onBulkAdd={onBulkAddMembers}
+      />
+
+      {/* Add from Org Modal */}
+      <AddFromOrgModal
+        open={addFromOrgOpen}
+        onClose={() => setAddFromOrgOpen(false)}
+        teamId={teamId}
+        existingUserIds={members.map((m) => m.user_id)}
+        roles={roles}
+        onAddMembers={onRefresh}
       />
 
       {/* Remove Confirmation Modal */}
