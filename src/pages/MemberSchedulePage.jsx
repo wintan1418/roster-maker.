@@ -324,10 +324,12 @@ export default function MemberSchedulePage() {
                     for (const [cellKey, value] of Object.entries(assignments)) {
                         if (!value?.memberId) continue;
 
-                        const [eventId, ...roleParts] = cellKey.split('-');
-                        const roleSlotId = roleParts.join('-');
-                        const event = rosterEvents.find((e) => e.id === eventId);
+                        // Both eventId and roleSlotId are UUIDs containing dashes,
+                        // so we can't simply split on '-'. Instead find the event
+                        // whose UUID is a prefix of the cell key.
+                        const event = rosterEvents.find((e) => cellKey.startsWith(e.id + '-'));
                         if (!event) continue;
+                        const roleSlotId = cellKey.slice(event.id.length + 1);
 
                         // Resolve role name: check roleConfig first, then team_roles table
                         let roleName = slotNameMap[roleSlotId] || 'Role';

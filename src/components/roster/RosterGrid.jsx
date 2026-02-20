@@ -395,20 +395,29 @@ export default function RosterGrid({
                           {formatDate(event.date, 'EEE, MMM d')}
                         </span>
                         {!readOnly && onUpdateEvent ? (
-                          <label className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium cursor-pointer">
-                            <Clock size={11} />
-                            <span>Rehearsal</span>
+                          <div className="flex flex-col gap-0.5">
+                            <label className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
+                              <Clock size={11} />
+                              <span>Rehearsal</span>
+                            </label>
+                            <input
+                              type="date"
+                              value={event.rehearsalDate || ''}
+                              onChange={(e) => onUpdateEvent(event.id, { rehearsalDate: e.target.value || null })}
+                              className="w-32 px-1 py-0.5 text-xs rounded border border-amber-200 bg-amber-50 text-amber-700 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                              placeholder="Date"
+                            />
                             <input
                               type="time"
                               value={event.rehearsalTime || ''}
                               onChange={(e) => onUpdateEvent(event.id, { rehearsalTime: e.target.value || null })}
-                              className="w-24 px-1 py-0 text-xs rounded border border-amber-200 bg-amber-50 text-amber-700 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                              className="w-24 px-1 py-0.5 text-xs rounded border border-amber-200 bg-amber-50 text-amber-700 focus:outline-none focus:ring-1 focus:ring-amber-400"
                             />
-                          </label>
-                        ) : event.rehearsalTime ? (
+                          </div>
+                        ) : (event.rehearsalDate || event.rehearsalTime) ? (
                           <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
                             <Clock size={11} />
-                            Rehearsal {event.rehearsalTime}
+                            {event.rehearsalDate ? `${event.rehearsalDate} ` : ''}{event.rehearsalTime || ''}
                           </span>
                         ) : null}
                         {event.time && (
@@ -986,15 +995,17 @@ function AddEventRow({ colSpan, onAddEvent, rosterStartDate, rosterEndDate }) {
   const [name, setName] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
+  const [rehearsalDate, setRehearsalDate] = useState('');
   const [rehearsalTime, setRehearsalTime] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!name.trim() || !date) return;
-    onAddEvent({ name: name.trim(), date, time: time || null, rehearsalTime: rehearsalTime || null });
+    onAddEvent({ name: name.trim(), date, time: time || null, rehearsalDate: rehearsalDate || null, rehearsalTime: rehearsalTime || null });
     setName('');
     setDate('');
     setTime('');
+    setRehearsalDate('');
     setRehearsalTime('');
     setOpen(false);
   };
@@ -1071,6 +1082,21 @@ function AddEventRow({ colSpan, onAddEvent, rosterStartDate, rosterEndDate }) {
                 'px-3 py-1.5 text-sm rounded-md',
                 'bg-surface-50 border border-surface-200 text-surface-900',
                 'focus:outline-none focus:ring-1 focus:ring-primary-500'
+              )}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">
+              Rehearsal Date <span className="text-surface-300">(optional)</span>
+            </label>
+            <input
+              type="date"
+              value={rehearsalDate}
+              onChange={(e) => setRehearsalDate(e.target.value)}
+              className={clsx(
+                'px-3 py-1.5 text-sm rounded-md',
+                'bg-amber-50 border border-amber-200 text-surface-900',
+                'focus:outline-none focus:ring-1 focus:ring-amber-400'
               )}
             />
           </div>

@@ -151,6 +151,7 @@ export default function RosterEditorPage() {
               name: e.event_name,
               date: e.event_date,
               time: e.event_time,
+              rehearsalDate: e.rehearsal_date,
               rehearsalTime: e.rehearsal_time,
               rehearsalNote: e.rehearsal_note,
               sort_order: e.sort_order,
@@ -234,6 +235,7 @@ export default function RosterEditorPage() {
             event_name: evt.name,
             event_date: evt.date,
             event_time: evt.time || null,
+            rehearsal_date: evt.rehearsalDate || null,
             rehearsal_time: evt.rehearsalTime || null,
             sort_order: idx,
           }));
@@ -418,7 +420,7 @@ export default function RosterEditorPage() {
   // ── Event row management ──────────────────────────────────────────────────
 
   const handleAddEvent = useCallback(
-    async ({ name, date, time, rehearsalTime }) => {
+    async ({ name, date, time, rehearsalDate, rehearsalTime }) => {
       if (!roster?.id || !supabase) return;
       try {
         const { data, error } = await supabase
@@ -428,6 +430,7 @@ export default function RosterEditorPage() {
             event_name: name,
             event_date: date,
             event_time: time || null,
+            rehearsal_date: rehearsalDate || null,
             rehearsal_time: rehearsalTime || null,
             sort_order: events.length,
           })
@@ -438,7 +441,7 @@ export default function RosterEditorPage() {
 
         setEvents((prev) => [
           ...prev,
-          { id: data.id, roster_id: data.roster_id, name: data.event_name, date: data.event_date, time: data.event_time, rehearsalTime: data.rehearsal_time, sort_order: data.sort_order },
+          { id: data.id, roster_id: data.roster_id, name: data.event_name, date: data.event_date, time: data.event_time, rehearsalDate: data.rehearsal_date, rehearsalTime: data.rehearsal_time, sort_order: data.sort_order },
         ]);
         toast.success(`Added "${name}" event`);
       } catch (err) {
@@ -454,6 +457,7 @@ export default function RosterEditorPage() {
       if (!supabase) return;
       try {
         const dbFields = {};
+        if ('rehearsalDate' in fields) dbFields.rehearsal_date = fields.rehearsalDate || null;
         if ('rehearsalTime' in fields) dbFields.rehearsal_time = fields.rehearsalTime || null;
         if ('time' in fields) dbFields.event_time = fields.time || null;
         if (Object.keys(dbFields).length === 0) return;
