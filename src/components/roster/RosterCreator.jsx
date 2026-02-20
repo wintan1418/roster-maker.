@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Check,
   ChevronLeft,
@@ -29,6 +29,8 @@ import Select from '@/components/ui/Select';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { PERIOD_TYPES, TEMPLATE_TYPES } from '@/lib/constants';
+import useTeamStore from '@/stores/teamStore';
+import useAuthStore from '@/stores/authStore';
 
 const STEPS = [
   { id: 1, label: 'Team & Title' },
@@ -213,6 +215,14 @@ function RoleStepper({ role, onQuantityChange, onSetQuantity, onRemove, onNameCh
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RosterCreator({ onComplete, onCancel }) {
+  const { teams, fetchTeams } = useTeamStore();
+  const orgId = useAuthStore((s) => s.orgId);
+
+  // Fetch teams if not loaded
+  useEffect(() => {
+    if (orgId && teams.length === 0) fetchTeams(orgId);
+  }, [orgId, teams.length, fetchTeams]);
+
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     teamId: '',
@@ -383,7 +393,7 @@ export default function RosterCreator({ onComplete, onCancel }) {
   const isStepValid = useMemo(() => {
     switch (step) {
       case 1:
-        return formData.title.trim() && formData.templateType;
+        return formData.title.trim() && formData.templateType && formData.teamId;
       case 2:
         return formData.roles.filter((r) => r.quantity > 0 && r.name.trim()).length > 0;
       case 3:
@@ -484,6 +494,21 @@ export default function RosterCreator({ onComplete, onCancel }) {
                 Choose a template to pre-fill roles, or start custom.
               </p>
             </div>
+
+            <Select
+              label="Team"
+              value={formData.teamId}
+              onChange={(e) => {
+                const team = teams.find((t) => t.id === e.target.value);
+                updateField('teamId', e.target.value);
+                updateField('teamName', team?.name || '');
+              }}
+              placeholder="Select a team..."
+            >
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </Select>
 
             <Input
               label="Roster Title"
