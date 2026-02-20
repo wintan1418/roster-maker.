@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ChevronRight, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -6,6 +6,8 @@ import Button from '@/components/ui/Button';
 import { LoadingBlock } from '@/components/ui/LoadingSpinner';
 import TeamDetail from '@/components/teams/TeamDetail';
 import useTeamStore from '@/stores/teamStore';
+import useAuthStore from '@/stores/authStore';
+import { supabase } from '@/lib/supabase';
 
 export default function TeamDetailPage() {
   const { teamId } = useParams();
@@ -19,22 +21,36 @@ export default function TeamDetailPage() {
     fetchTeam,
     fetchTeamMembers,
     fetchTeamRoles,
+    fetchTeamInvitations,
+    resendInvitation,
+    cancelInvitation,
     updateTeam,
     deleteTeam,
     addTeamRole,
     updateTeamRole,
     deleteTeamRole,
     addBulkRoles,
+    addBulkMembers,
   } = useTeamStore();
 
+  const { orgId } = useAuthStore();
+  const [invitations, setInvitations] = useState([]);
+
   // ── Fetch data on mount ───────────────────────────────────────────────────
+
+  const loadInvitations = useCallback(async () => {
+    if (!teamId) return;
+    const { data } = await fetchTeamInvitations(teamId);
+    setInvitations(data ?? []);
+  }, [teamId, fetchTeamInvitations]);
 
   useEffect(() => {
     if (!teamId) return;
     fetchTeam(teamId);
     fetchTeamMembers(teamId);
     fetchTeamRoles(teamId);
-  }, [teamId, fetchTeam, fetchTeamMembers, fetchTeamRoles]);
+    loadInvitations();
+  }, [teamId, fetchTeam, fetchTeamMembers, fetchTeamRoles, loadInvitations]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -60,21 +76,80 @@ export default function TeamDetailPage() {
     }
   }, [teamId, deleteTeam, navigate]);
 
-  const handleAddMember = useCallback(async () => {
-    toast('Member management coming soon', { icon: '\u2139\uFE0F' });
-  }, []);
+  const handleAddMember = useCallback(async (memberData) => {
+    const { errors } = await addBulkMembers(
+      teamId,
+      orgId,
+      [{ name: memberData.name, email: memberData.email, phone: memberData.phone }],
+      memberData.roles || []
+    );
+    if (errors?.length > 0) {
+      toast.error('Failed to add member');
+    } else {
+      toast.success('Member added successfully');
+    }
+  }, [teamId, orgId, addBulkMembers]);
 
-  const handleRemoveMember = useCallback(async () => {
-    toast('Member management coming soon', { icon: '\u2139\uFE0F' });
-  }, []);
+  const handleBulkAdd = useCallback(async (membersList, roleIds) => {
+    const { errors } = await addBulkMembers(teamId, orgId, membersList, roleIds);
+    if (errors?.length > 0) {
+      toast.error(`${errors.length} member(s) failed to add`);
+    }
+    // Refresh invitations list to show newly created pending invites
+    loadInvitations();
+  }, [teamId, orgId, addBulkMembers, loadInvitations]);
 
-  const handleToggleAdmin = useCallback(async () => {
-    toast('Member management coming soon', { icon: '\u2139\uFE0F' });
-  }, []);
+  const handleResendInvitation = useCallback(async (email, fullName) => {
+    const { error } = await resendInvitation(email, fullName);
+    if (error) throw error;
+  }, [resendInvitation]);
 
-  const handleUpdateMemberRoles = useCallback(async () => {
-    toast('Member role management coming soon', { icon: '\u2139\uFE0F' });
-  }, []);
+  const handleCancelInvitation = useCallback(async (invitationId) => {
+    const { error } = await cancelInvitation(invitationId);
+    if (error) throw error;
+    setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+  }, [cancelInvitation]);
+
+  const handleRemoveMember = useCallback(async (memberId) => {
+    if (!supabase) return;
+    try {
+      const { error } = await supabase
+        .from('team_members')
+        .delete()
+        .eq('id', memberId);
+      if (error) throw error;
+      toast.success('Member removed');
+      fetchTeamMembers(teamId);
+    } catch (err) {
+      toast.error('Failed to remove member');
+    }
+  }, [teamId, fetchTeamMembers]);
+
+  const handleUpdateMemberRoles = useCallback(async (memberId, roleIds) => {
+    if (!supabase) return;
+    try {
+      await supabase
+        .from('member_roles')
+        .delete()
+        .eq('team_member_id', memberId);
+
+      if (roleIds.length > 0) {
+        const rows = roleIds.map((roleId) => ({
+          team_member_id: memberId,
+          team_role_id: roleId,
+        }));
+        const { error } = await supabase
+          .from('member_roles')
+          .insert(rows);
+        if (error) throw error;
+      }
+
+      toast.success('Roles updated');
+      fetchTeamMembers(teamId);
+    } catch (err) {
+      toast.error('Failed to update roles');
+    }
+  }, [teamId, fetchTeamMembers]);
 
   const handleAddRole = useCallback(
     async (roleData) => {
@@ -166,12 +241,15 @@ export default function TeamDetailPage() {
         team={team}
         members={members}
         roles={roles}
+        invitations={invitations}
         onUpdateTeam={handleUpdateTeam}
         onDeleteTeam={handleDeleteTeam}
         onAddMember={handleAddMember}
+        onBulkAddMembers={handleBulkAdd}
         onRemoveMember={handleRemoveMember}
-        onToggleAdmin={handleToggleAdmin}
         onUpdateMemberRoles={handleUpdateMemberRoles}
+        onResendInvitation={handleResendInvitation}
+        onCancelInvitation={handleCancelInvitation}
         onAddRole={handleAddRole}
         onEditRole={handleEditRole}
         onDeleteRole={handleDeleteRole}

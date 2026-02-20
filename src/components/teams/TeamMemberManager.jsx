@@ -2,13 +2,19 @@ import { useState, useMemo } from 'react';
 import {
   Search,
   UserPlus,
+  Users,
   MoreHorizontal,
-  ShieldCheck,
-  ShieldOff,
   Trash2,
   Pencil,
+  Mail,
+  Clock,
+  RefreshCw,
+  XCircle,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatDate } from '@/lib/utils';
 import Table from '@/components/ui/Table';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -17,21 +23,28 @@ import Avatar from '@/components/ui/Avatar';
 import Modal from '@/components/ui/Modal';
 import EmptyState from '@/components/ui/EmptyState';
 import InviteMemberModal from '@/components/teams/InviteMemberModal';
+import BulkAddMembersModal from '@/components/teams/BulkAddMembersModal';
 
 export default function TeamMemberManager({
   members = [],
   roles = [],
+  invitations = [],
   onAddMember,
+  onBulkAddMembers,
   onRemoveMember,
-  onToggleAdmin,
   onUpdateMemberRoles,
+  onResendInvitation,
+  onCancelInvitation,
 }) {
   const [search, setSearch] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [removeConfirm, setRemoveConfirm] = useState(null);
   const [editRolesFor, setEditRolesFor] = useState(null);
   const [editRolesSelected, setEditRolesSelected] = useState([]);
   const [openMenu, setOpenMenu] = useState(null);
+  const [invitesExpanded, setInvitesExpanded] = useState(true);
+  const [resendingId, setResendingId] = useState(null);
 
   const filteredMembers = useMemo(() => {
     if (!search.trim()) return members;
@@ -43,17 +56,6 @@ export default function TeamMemberManager({
         m.roles?.some((r) => r.name?.toLowerCase().includes(q))
     );
   }, [members, search]);
-
-  function handleToggleAdmin(member) {
-    const newStatus = !member.is_admin;
-    onToggleAdmin?.(member.id, newStatus);
-    toast.success(
-      newStatus
-        ? `${member.name} is now a team admin`
-        : `${member.name} is no longer an admin`
-    );
-    setOpenMenu(null);
-  }
 
   function handleRemoveMember() {
     if (!removeConfirm) return;
@@ -82,17 +84,43 @@ export default function TeamMemberManager({
     );
   }
 
-  if (members.length === 0 && !search) {
+  async function handleResend(invite) {
+    setResendingId(invite.id);
+    try {
+      await onResendInvitation?.(invite.email, invite.full_name);
+      toast.success(`Invite resent to ${invite.email}`);
+    } catch {
+      toast.error('Failed to resend invite');
+    } finally {
+      setResendingId(null);
+    }
+  }
+
+  async function handleCancelInvite(invite) {
+    try {
+      await onCancelInvitation?.(invite.id);
+      toast.success(`Invite cancelled for ${invite.email}`);
+    } catch {
+      toast.error('Failed to cancel invite');
+    }
+  }
+
+  if (members.length === 0 && invitations.length === 0 && !search) {
     return (
       <>
         <EmptyState
           icon={UserPlus}
           title="No members yet"
-          description="Invite your first team member to get started."
+          description="Add your first team member individually or paste a list to bulk add."
           action={
-            <Button iconLeft={UserPlus} onClick={() => setInviteOpen(true)}>
-              Invite Member
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button iconLeft={UserPlus} onClick={() => setInviteOpen(true)}>
+                Add Member
+              </Button>
+              <Button variant="outline" iconLeft={Users} onClick={() => setBulkAddOpen(true)}>
+                Bulk Add
+              </Button>
+            </div>
           }
         />
         <InviteMemberModal
@@ -100,6 +128,13 @@ export default function TeamMemberManager({
           onClose={() => setInviteOpen(false)}
           roles={roles}
           onInvite={onAddMember}
+        />
+        <BulkAddMembersModal
+          open={bulkAddOpen}
+          onClose={() => setBulkAddOpen(false)}
+          roles={roles}
+          existingEmails={[]}
+          onBulkAdd={onBulkAddMembers}
         />
       </>
     );
@@ -117,9 +152,14 @@ export default function TeamMemberManager({
             iconLeft={Search}
           />
         </div>
-        <Button iconLeft={UserPlus} onClick={() => setInviteOpen(true)}>
-          Add Member
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button iconLeft={UserPlus} onClick={() => setInviteOpen(true)}>
+            Add Member
+          </Button>
+          <Button variant="outline" iconLeft={Users} onClick={() => setBulkAddOpen(true)}>
+            Bulk Add
+          </Button>
+        </div>
       </div>
 
       {/* Members table */}
@@ -134,7 +174,6 @@ export default function TeamMemberManager({
               <Table.HeaderCell>Member</Table.HeaderCell>
               <Table.HeaderCell>Email</Table.HeaderCell>
               <Table.HeaderCell>Roles</Table.HeaderCell>
-              <Table.HeaderCell>Status</Table.HeaderCell>
               <Table.HeaderCell align="right">Actions</Table.HeaderCell>
             </Table.Row>
           </Table.Head>
@@ -180,19 +219,6 @@ export default function TeamMemberManager({
                   </div>
                 </Table.Cell>
 
-                {/* Admin status */}
-                <Table.Cell>
-                  {member.is_admin ? (
-                    <Badge color="warning" size="sm" dot>
-                      Admin
-                    </Badge>
-                  ) : (
-                    <Badge color="default" size="sm">
-                      Member
-                    </Badge>
-                  )}
-                </Table.Cell>
-
                 {/* Actions */}
                 <Table.Cell align="right">
                   <div className="relative inline-block">
@@ -221,22 +247,6 @@ export default function TeamMemberManager({
                             <Pencil size={14} className="text-surface-400" />
                             Edit Roles
                           </button>
-                          <button
-                            onClick={() => handleToggleAdmin(member)}
-                            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-surface-700 hover:bg-surface-50 transition-colors cursor-pointer"
-                          >
-                            {member.is_admin ? (
-                              <>
-                                <ShieldOff size={14} className="text-surface-400" />
-                                Remove Admin
-                              </>
-                            ) : (
-                              <>
-                                <ShieldCheck size={14} className="text-surface-400" />
-                                Make Admin
-                              </>
-                            )}
-                          </button>
                           <div className="border-t border-surface-100 my-1" />
                           <button
                             onClick={() => {
@@ -264,12 +274,102 @@ export default function TeamMemberManager({
         {filteredMembers.length} of {members.length} member{members.length !== 1 ? 's' : ''}
       </p>
 
+      {/* Pending Invites section */}
+      {invitations.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 overflow-hidden">
+          {/* Header */}
+          <button
+            type="button"
+            onClick={() => setInvitesExpanded((v) => !v)}
+            className="flex items-center justify-between w-full px-4 py-3 text-left cursor-pointer hover:bg-amber-100/60 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Clock size={15} className="text-amber-600" />
+              <span className="text-sm font-semibold text-amber-800">
+                Pending Invites
+              </span>
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-700 font-semibold">
+                {invitations.length}
+              </span>
+            </div>
+            {invitesExpanded ? (
+              <ChevronDown size={15} className="text-amber-600" />
+            ) : (
+              <ChevronRight size={15} className="text-amber-600" />
+            )}
+          </button>
+
+          {/* Invite list */}
+          {invitesExpanded && (
+            <div className="divide-y divide-amber-100 border-t border-amber-200">
+              {invitations.map((invite) => (
+                <div
+                  key={invite.id}
+                  className="flex items-center gap-3 px-4 py-3 bg-white/70"
+                >
+                  {/* Icon */}
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-100 text-amber-500 shrink-0">
+                    <Mail size={15} />
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-surface-800 truncate">
+                      {invite.full_name || invite.email}
+                    </p>
+                    <p className="text-xs text-surface-500 truncate">{invite.email}</p>
+                    {invite.created_at && (
+                      <p className="text-xs text-surface-400 mt-0.5">
+                        Invited {formatDate(invite.created_at)}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Badge + actions */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge color="warning" size="sm">
+                      Pending
+                    </Badge>
+                    <button
+                      type="button"
+                      title="Resend invite"
+                      onClick={() => handleResend(invite)}
+                      disabled={resendingId === invite.id}
+                      className="p-1.5 rounded-lg text-surface-400 hover:text-primary-600 hover:bg-primary-50 transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      <RefreshCw size={14} className={resendingId === invite.id ? 'animate-spin' : ''} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Cancel invite"
+                      onClick={() => handleCancelInvite(invite)}
+                      className="p-1.5 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                    >
+                      <XCircle size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Invite Modal */}
       <InviteMemberModal
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
         roles={roles}
         onInvite={onAddMember}
+      />
+
+      {/* Bulk Add Modal */}
+      <BulkAddMembersModal
+        open={bulkAddOpen}
+        onClose={() => setBulkAddOpen(false)}
+        roles={roles}
+        existingEmails={members.map((m) => m.email)}
+        onBulkAdd={onBulkAddMembers}
       />
 
       {/* Remove Confirmation Modal */}
@@ -295,31 +395,40 @@ export default function TeamMemberManager({
         open={!!editRolesFor}
         onClose={() => setEditRolesFor(null)}
         title={`Edit Roles for ${editRolesFor?.name || ''}`}
-        description="Select the roles this member should have."
+        description="Select the roles this member can fill."
         width="sm"
       >
-        <div className="max-h-64 overflow-y-auto space-y-1">
-          {roles.map((role) => (
-            <label
-              key={role.id}
-              className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-surface-50 cursor-pointer transition-colors duration-150"
-            >
-              <input
-                type="checkbox"
-                checked={editRolesSelected.includes(role.id)}
-                onChange={() => toggleEditRole(role.id)}
-                className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
-              />
-              <div>
-                <span className="text-sm text-surface-700">{role.name}</span>
-                {role.category && (
-                  <span className="ml-2 text-xs text-surface-400 capitalize">
-                    {role.category}
-                  </span>
-                )}
+        <div className="max-h-64 overflow-y-auto">
+          {(() => {
+            // Group roles by category
+            const grouped = {};
+            for (const role of roles) {
+              const cat = role.category || 'other';
+              if (!grouped[cat]) grouped[cat] = [];
+              grouped[cat].push(role);
+            }
+            return Object.entries(grouped).map(([category, catRoles]) => (
+              <div key={category} className="mb-2">
+                <p className="px-2 py-1 text-[10px] font-semibold text-surface-400 uppercase tracking-wider bg-surface-50 sticky top-0">
+                  {category}
+                </p>
+                {catRoles.map((role) => (
+                  <label
+                    key={role.id}
+                    className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-surface-50 cursor-pointer transition-colors duration-150"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={editRolesSelected.includes(role.id)}
+                      onChange={() => toggleEditRole(role.id)}
+                      className="h-4 w-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                    />
+                    <span className="text-sm text-surface-700">{role.name}</span>
+                  </label>
+                ))}
               </div>
-            </label>
-          ))}
+            ));
+          })()}
         </div>
         <Modal.Footer>
           <Button variant="secondary" onClick={() => setEditRolesFor(null)}>

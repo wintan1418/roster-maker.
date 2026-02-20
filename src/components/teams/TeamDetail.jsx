@@ -40,12 +40,15 @@ export default function TeamDetail({
   team,
   members = [],
   roles = [],
+  invitations = [],
   onUpdateTeam,
   onDeleteTeam,
   onAddMember,
+  onBulkAddMembers,
   onRemoveMember,
-  onToggleAdmin,
   onUpdateMemberRoles,
+  onResendInvitation,
+  onCancelInvitation,
   onAddRole,
   onEditRole,
   onDeleteRole,
@@ -174,7 +177,7 @@ export default function TeamDetail({
             >
               <Icon size={16} />
               {tab.label}
-              {tab.key === 'members' && members.length > 0 && (
+              {tab.key === 'members' && (members.length > 0 || invitations.length > 0) && (
                 <span
                   className={clsx(
                     'ml-0.5 text-xs px-1.5 py-0.5 rounded-full',
@@ -184,6 +187,9 @@ export default function TeamDetail({
                   )}
                 >
                   {members.length}
+                  {invitations.length > 0 && (
+                    <span className="ml-1 text-amber-600">+{invitations.length}</span>
+                  )}
                 </span>
               )}
               {tab.key === 'roles' && roles.length > 0 && (
@@ -212,10 +218,13 @@ export default function TeamDetail({
           <TeamMemberManager
             members={members}
             roles={roles}
+            invitations={invitations}
             onAddMember={onAddMember}
+            onBulkAddMembers={onBulkAddMembers}
             onRemoveMember={onRemoveMember}
-            onToggleAdmin={onToggleAdmin}
             onUpdateMemberRoles={onUpdateMemberRoles}
+            onResendInvitation={onResendInvitation}
+            onCancelInvitation={onCancelInvitation}
           />
         )}
         {activeTab === 'roles' && (
