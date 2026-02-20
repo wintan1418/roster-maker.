@@ -1,4 +1,6 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import useAuthStore from '@/stores/authStore';
 import {
   Shuffle,
   Users,
@@ -42,6 +44,17 @@ const features = [
 ];
 
 export default function Landing() {
+  const navigate = useNavigate();
+  const { user, initialized } = useAuthStore();
+
+  // If the user is already signed in (including after clicking a magic link
+  // that redirects back to the homepage), send them straight to the dashboard.
+  useEffect(() => {
+    if (initialized && user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [initialized, user, navigate]);
+
   return (
     <div className="min-h-screen">
       {/* Navigation */}

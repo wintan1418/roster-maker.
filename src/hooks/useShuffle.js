@@ -1,12 +1,11 @@
 import { useState, useCallback } from 'react';
-import { isMemberAvailable, getDemoMembersForTeam } from '@/lib/demoData';
 
 /**
  * Shuffle algorithm hook for roster auto-assignment.
  *
  * Algorithm:
  *   For each event, for each role:
- *     1. Get eligible members (has role + available on date + not already assigned to another role in this event)
+ *     1. Get eligible members (has role + not already assigned to another role in this event)
  *     2. Sort by: assignment_count ASC, then last_assigned_date ASC (least-used first)
  *     3. Pick top candidate
  *     4. Record the assignment and update tracking counts
@@ -21,23 +20,18 @@ export default function useShuffle() {
    *
    * @param {Object} params
    * @param {Array}  params.events       - Array of event objects { id, date, name }
-   * @param {Array}  params.roles        - Array of role objects { id, name }
-   * @param {string} params.teamId       - The team ID for member lookup
-   * @param {Object} params.currentAssignments - Current assignments map: { `${eventId}-${roleId}`: { memberId, manual } }
+   * @param {Array}  params.roles        - Array of role slot objects { id, name, originalRole }
+   * @param {string} params.teamId       - The team ID for context
+   * @param {Object} params.currentAssignments - Current assignments map
    * @param {string} params.mode         - 'all' | 'empty_only'
-   *   - 'all': Clear all auto-assignments then re-shuffle everything
-   *   - 'empty_only': Only fill empty cells
-   *
-   * @returns {Object} { newAssignments, assignmentsMade }
+   * @param {Array}  params.members      - Real team members with roleIds
+   * @param {Object} params.roleNameToId - Map of role name → team_role UUID
    */
-  const shuffle = useCallback(({ events, roles, teamId, currentAssignments, mode = 'all' }) => {
+  const shuffle = useCallback(({ events, roles, teamId, currentAssignments, mode = 'all', members = [], roleNameToId = {} }) => {
     setIsShuffling(true);
 
     return new Promise((resolve) => {
-      // Simulate a brief processing delay for visual feedback
       setTimeout(() => {
-        const members = getDemoMembersForTeam(teamId);
-
         // Build the working assignments map
         let workingAssignments = { ...currentAssignments };
 
@@ -66,8 +60,7 @@ export default function useShuffle() {
         for (const [key, value] of Object.entries(workingAssignments)) {
           if (value.memberId) {
             assignmentCounts[value.memberId] = (assignmentCounts[value.memberId] || 0) + 1;
-            // Parse event index from the key
-            const eventId = key.split('-role-')[0];
+            const eventId = key.split('-')[0];
             const eventIdx = events.findIndex((e) => e.id === eventId);
             if (eventIdx > (lastAssignedEventIndex[value.memberId] ?? -1)) {
               lastAssignedEventIndex[value.memberId] = eventIdx;
@@ -96,14 +89,17 @@ export default function useShuffle() {
               return;
             }
 
-            // Get eligible members for this role on this date
+            // Resolve role name to team_role UUID for member matching
+            const baseRoleName = role.originalRole?.name || role.name.replace(/\s+\d+$/, '');
+            const teamRoleId = roleNameToId[baseRoleName];
+
+            // Get eligible members for this role
             const eligible = members.filter((m) => {
-              // Must have this role
-              if (!m.roleIds.includes(role.id)) return false;
-              // Must be available on this date
-              if (!isMemberAvailable(m.id, event.date)) return false;
+              // Must have this role (if we can resolve it)
+              if (teamRoleId && !(m.roleIds || []).includes(teamRoleId)) return false;
               // Must not already be assigned to another role in this event
               if (assignedToThisEvent.has(m.id)) return false;
+              // TODO: integrate real availability data
               return true;
             });
 
@@ -137,7 +133,7 @@ export default function useShuffle() {
 
         setIsShuffling(false);
         resolve({ newAssignments: workingAssignments, assignmentsMade });
-      }, 600); // 600ms delay for animation
+      }, 600);
     });
   }, []);
 

@@ -11,6 +11,7 @@ import Avatar from '@/components/ui/Avatar';
 export default function RosterCell({
   eventId,
   roleId,
+  teamRoleId,
   teamId,
   dateStr,
   assignment,          // { memberId, manual } | undefined
@@ -53,7 +54,7 @@ export default function RosterCell({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  // Get all team members with assignment info
+  // Get all team members with assignment info and role matching
   const memberOptions = useCallback(() => {
     return members
       .map((m) => ({
@@ -62,18 +63,22 @@ export default function RosterCell({
         alreadyAssigned: assignedToEvent?.has(m.id) && m.id !== assignment?.memberId,
         count: assignmentCounts?.[m.id] || 0,
         isSelected: m.id === assignment?.memberId,
+        matchesRole: teamRoleId ? (m.roleIds || []).includes(teamRoleId) : true,
       }))
       .sort((a, b) => {
         // Selected first
         if (a.isSelected && !b.isSelected) return -1;
         if (!a.isSelected && b.isSelected) return 1;
+        // Role matches before non-matches
+        if (a.matchesRole && !b.matchesRole) return -1;
+        if (!a.matchesRole && b.matchesRole) return 1;
         // Not assigned to event before already assigned
         if (!a.alreadyAssigned && b.alreadyAssigned) return -1;
         if (a.alreadyAssigned && !b.alreadyAssigned) return 1;
         // Fewest assignments first
         return a.count - b.count;
       });
-  }, [members, assignedToEvent, assignment, assignmentCounts]);
+  }, [members, assignedToEvent, assignment, assignmentCounts, teamRoleId]);
 
   const handleCellClick = () => {
     if (readOnly) return;
@@ -97,9 +102,13 @@ export default function RosterCell({
     onToggleManual?.(eventId, roleId);
   };
 
-  const filteredOptions = memberOptions().filter((m) =>
-    search ? m.name.toLowerCase().includes(search.toLowerCase()) : true
-  );
+  const filteredOptions = memberOptions().filter((m) => {
+    // Strict role filter — only show members with matching role
+    if (teamRoleId && !m.matchesRole) return false;
+    // Text search
+    if (search && !m.name.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
 
   return (
     <div className="relative" ref={cellRef}>
@@ -209,7 +218,7 @@ export default function RosterCell({
             </div>
           )}
 
-          {/* Member list */}
+          {/* Member list — strictly filtered by role */}
           <div className="overflow-y-auto max-h-48">
             {members.length === 0 ? (
               <div className="p-4 text-center text-sm text-surface-400">
@@ -220,54 +229,14 @@ export default function RosterCell({
             ) : filteredOptions.length === 0 ? (
               <div className="p-4 text-center text-sm text-surface-400">
                 <User size={20} className="mx-auto mb-1 opacity-50" />
-                No matching members found
+                {teamRoleId
+                  ? 'No members assigned to this role'
+                  : 'No matching members found'}
               </div>
             ) : (
-              filteredOptions.map((m) => {
-                const isDisabled = m.alreadyAssigned;
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => !isDisabled && handleSelectMember(m.id)}
-                    disabled={isDisabled}
-                    className={clsx(
-                      'w-full flex items-center gap-2.5 px-3 py-2 text-left',
-                      'transition-colors duration-150',
-                      m.isSelected
-                        ? 'bg-primary-50 border-l-2 border-primary-500'
-                        : 'border-l-2 border-transparent',
-                      isDisabled
-                        ? 'opacity-40 cursor-not-allowed'
-                        : 'hover:bg-surface-50 cursor-pointer'
-                    )}
-                  >
-                    <Avatar name={m.name} size="sm" className="flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={clsx(
-                          'text-sm font-medium truncate',
-                          m.isSelected ? 'text-primary-700' : 'text-surface-800'
-                        )}
-                      >
-                        {m.name}
-                      </p>
-                      <div className="flex items-center gap-2 text-[10px] text-surface-400">
-                        <span>{m.count} assignment{m.count !== 1 ? 's' : ''}</span>
-                        {m.alreadyAssigned && (
-                          <span className="text-surface-400">
-                            Already assigned
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {m.isSelected && (
-                      <div className="flex-shrink-0 w-4 h-4 rounded-full bg-primary-500 flex items-center justify-center">
-                        <Check size={10} className="text-white" />
-                      </div>
-                    )}
-                  </button>
-                );
-              })
+              filteredOptions.map((m) => (
+                <MemberOption key={m.id} m={m} onSelect={handleSelectMember} />
+              ))
             )}
           </div>
         </div>
@@ -281,5 +250,48 @@ export default function RosterCell({
         }
       `}</style>
     </div>
+  );
+}
+
+function MemberOption({ m, onSelect }) {
+  const isDisabled = m.alreadyAssigned;
+  return (
+    <button
+      onClick={() => !isDisabled && onSelect(m.id)}
+      disabled={isDisabled}
+      className={clsx(
+        'w-full flex items-center gap-2.5 px-3 py-2 text-left',
+        'transition-colors duration-150',
+        m.isSelected
+          ? 'bg-primary-50 border-l-2 border-primary-500'
+          : 'border-l-2 border-transparent',
+        isDisabled
+          ? 'opacity-40 cursor-not-allowed'
+          : 'hover:bg-surface-50 cursor-pointer'
+      )}
+    >
+      <Avatar name={m.name} size="sm" className="flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p
+          className={clsx(
+            'text-sm font-medium truncate',
+            m.isSelected ? 'text-primary-700' : 'text-surface-800'
+          )}
+        >
+          {m.name}
+        </p>
+        <div className="flex items-center gap-2 text-[10px] text-surface-400">
+          <span>{m.count} assignment{m.count !== 1 ? 's' : ''}</span>
+          {m.alreadyAssigned && (
+            <span className="text-surface-400">Already assigned</span>
+          )}
+        </div>
+      </div>
+      {m.isSelected && (
+        <div className="flex-shrink-0 w-4 h-4 rounded-full bg-primary-500 flex items-center justify-center">
+          <Check size={10} className="text-white" />
+        </div>
+      )}
+    </button>
   );
 }

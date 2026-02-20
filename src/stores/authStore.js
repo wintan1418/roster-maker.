@@ -113,7 +113,11 @@ const useAuthStore = create((set, get) => ({
     if (!supabase) return noSupabase;
     set({ loading: true });
     try {
-      const { data, error } = await supabase.auth.signInWithOtp({ email });
+      const redirectTo = `${window.location.origin}/auth/callback`;
+      const { data, error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: redirectTo },
+      });
       if (error) throw error;
       return { data, error: null };
     } catch (err) {
@@ -137,6 +141,30 @@ const useAuthStore = create((set, get) => ({
       console.error('Sign-out failed:', err.message);
     } finally {
       set({ loading: false });
+    }
+  },
+
+  /**
+   * Look up a user's email by their phone number.
+   * Used for phone-based magic link login.
+   */
+  lookupByPhone: async (phone) => {
+    if (!supabase) return { email: null, error: new Error('Supabase not configured') };
+    try {
+      // Normalize: strip spaces, dashes
+      const normalized = phone.replace(/[\s\-()]/g, '');
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('email')
+        .or(`phone.eq.${normalized},phone.eq.${phone.trim()}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return { email: null, error: new Error('No account found with that phone number') };
+      return { email: data.email, error: null };
+    } catch (err) {
+      return { email: null, error: err };
     }
   },
 }));

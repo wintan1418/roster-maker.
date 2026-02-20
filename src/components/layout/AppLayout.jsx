@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import useAuth from '@/hooks/useAuth';
@@ -24,11 +24,28 @@ export default function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
-  const { initialized } = useAuth();
+  const navigate = useNavigate();
+  const { user, initialized } = useAuth();
 
   const title = getPageTitle(location.pathname);
 
+  // Redirect unauthenticated users to login
+  useEffect(() => {
+    if (initialized && !user) {
+      navigate('/login', { replace: true, state: { from: location.pathname } });
+    }
+  }, [initialized, user, navigate, location.pathname]);
+
   if (!initialized) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-surface-50">
+        <LoadingSpinner size="xl" />
+      </div>
+    );
+  }
+
+  // Don't render the layout while redirecting
+  if (!user) {
     return (
       <div className="flex h-screen items-center justify-center bg-surface-50">
         <LoadingSpinner size="xl" />
@@ -51,7 +68,7 @@ export default function AppLayout() {
         />
       )}
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden relative z-[35]">
         <Header
           title={title}
           onMenuToggle={() => setMobileMenuOpen(!mobileMenuOpen)}

@@ -40,6 +40,8 @@ export default function RosterGrid({
   onPreview,
   onPublish,
   onSave,
+  onAddEvent,
+  onRemoveEvent,
   onDuplicateRole,
   onRemoveRole,
   onAddRole,
@@ -49,6 +51,15 @@ export default function RosterGrid({
   const [hasChanges, setHasChanges] = useState(false);
 
   const { shuffle, clearAutoAssignments, isShuffling } = useShuffle();
+
+  // Build lookup: role name → team_role UUID for member filtering
+  const roleNameToId = useMemo(() => {
+    const map = {};
+    for (const tr of teamRoles) {
+      map[tr.name] = tr.id;
+    }
+    return map;
+  }, [teamRoles]);
 
   // Calculate assignment counts per member across the entire roster
   const assignmentCounts = useMemo(() => {
@@ -123,6 +134,8 @@ export default function RosterGrid({
       teamId: roster.team_id,
       currentAssignments: assignments,
       mode: 'all',
+      members,
+      roleNameToId,
     });
     setAssignments(newAssignments);
     setHasChanges(true);
@@ -138,6 +151,8 @@ export default function RosterGrid({
       teamId: roster.team_id,
       currentAssignments: assignments,
       mode: 'empty_only',
+      members,
+      roleNameToId,
     });
     setAssignments(newAssignments);
     setHasChanges(true);
@@ -164,10 +179,14 @@ export default function RosterGrid({
     toast.success('All assignments cleared.');
   };
 
-  const handleSave = () => {
-    onSave?.(assignments);
-    setHasChanges(false);
-    toast.success('Roster saved successfully!');
+  const handleSave = async () => {
+    try {
+      await onSave?.(assignments);
+      setHasChanges(false);
+      toast.success('Roster saved successfully!');
+    } catch {
+      // Error toast already shown by parent
+    }
   };
 
   return (
@@ -310,7 +329,8 @@ export default function RosterGrid({
                   key={event.id}
                   className={clsx(
                     'transition-colors duration-200',
-                    'hover:bg-surface-50/50'
+                    'hover:bg-surface-50/50',
+                    'group'
                   )}
                 >
                   {/* Sticky first column: event info */}
@@ -322,19 +342,30 @@ export default function RosterGrid({
                       'group-hover:bg-surface-50'
                     )}
                   >
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-sm font-semibold text-surface-900">
-                        {event.name}
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-xs text-surface-500">
-                        <Calendar size={11} />
-                        {formatDate(event.date, 'EEE, MMM d')}
-                      </span>
-                      {event.time && (
-                        <span className="inline-flex items-center gap-1 text-xs text-surface-400">
-                          <Clock size={11} />
-                          {event.time}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-semibold text-surface-900">
+                          {event.name}
                         </span>
+                        <span className="inline-flex items-center gap-1 text-xs text-surface-500">
+                          <Calendar size={11} />
+                          {formatDate(event.date, 'EEE, MMM d')}
+                        </span>
+                        {event.time && (
+                          <span className="inline-flex items-center gap-1 text-xs text-surface-400">
+                            <Clock size={11} />
+                            {event.time}
+                          </span>
+                        )}
+                      </div>
+                      {!readOnly && onRemoveEvent && (
+                        <button
+                          onClick={() => onRemoveEvent(event.id)}
+                          className="p-1 rounded text-surface-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer shrink-0"
+                          title="Remove event"
+                        >
+                          <X size={14} />
+                        </button>
                       )}
                     </div>
                   </td>
@@ -347,6 +378,7 @@ export default function RosterGrid({
                         <RosterCell
                           eventId={event.id}
                           roleId={role.id}
+                          teamRoleId={roleNameToId[role.originalRole?.name || role.name.replace(/\s+\d+$/, '')] || null}
                           teamId={roster.team_id}
                           dateStr={event.date}
                           assignment={assignments[cellKey]}
@@ -367,6 +399,15 @@ export default function RosterGrid({
                 </tr>
               );
             })}
+            {/* Add Event row */}
+            {!readOnly && onAddEvent && (
+              <AddEventRow
+                colSpan={roles.length + 1 + (!readOnly ? 1 : 0)}
+                onAddEvent={onAddEvent}
+                rosterStartDate={roster.start_date}
+                rosterEndDate={roster.end_date}
+              />
+            )}
           </tbody>
         </table>
       </div>
@@ -586,5 +627,120 @@ function AddRoleColumn({ teamRoles = [], onAddRole }) {
         }
       `}</style>
     </th>
+  );
+}
+
+// ── Add Event Row ────────────────────────────────────────────────────────────
+
+function AddEventRow({ colSpan, onAddEvent, rosterStartDate, rosterEndDate }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!name.trim() || !date) return;
+    onAddEvent({ name: name.trim(), date, time: time || null });
+    setName('');
+    setDate('');
+    setTime('');
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <tr>
+        <td colSpan={colSpan} className="px-4 py-2">
+          <button
+            onClick={() => setOpen(true)}
+            className={clsx(
+              'w-full flex items-center justify-center gap-2 py-2 rounded-lg',
+              'border-2 border-dashed border-surface-200 text-surface-400',
+              'hover:border-primary-300 hover:text-primary-500 hover:bg-primary-50/50',
+              'transition-all duration-200 cursor-pointer text-sm'
+            )}
+          >
+            <Plus size={15} />
+            Add Event
+          </button>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-4 py-3">
+        <form onSubmit={handleSubmit} className="flex items-end gap-3 flex-wrap">
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">
+              Event Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Sunday Service"
+              autoFocus
+              className={clsx(
+                'px-3 py-1.5 text-sm rounded-md w-48',
+                'bg-surface-50 border border-surface-200',
+                'placeholder:text-surface-400 text-surface-900',
+                'focus:outline-none focus:ring-1 focus:ring-primary-500'
+              )}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">
+              Date
+            </label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              min={rosterStartDate}
+              max={rosterEndDate}
+              className={clsx(
+                'px-3 py-1.5 text-sm rounded-md',
+                'bg-surface-50 border border-surface-200 text-surface-900',
+                'focus:outline-none focus:ring-1 focus:ring-primary-500'
+              )}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">
+              Time <span className="text-surface-300">(optional)</span>
+            </label>
+            <input
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className={clsx(
+                'px-3 py-1.5 text-sm rounded-md',
+                'bg-surface-50 border border-surface-200 text-surface-900',
+                'focus:outline-none focus:ring-1 focus:ring-primary-500'
+              )}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="submit"
+              disabled={!name.trim() || !date}
+              className="px-3 py-1.5 rounded-md bg-primary-500 text-white text-sm font-medium disabled:opacity-40 hover:bg-primary-600 transition-colors cursor-pointer"
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setName(''); setDate(''); setTime(''); }}
+              className="px-3 py-1.5 rounded-md text-sm text-surface-500 hover:bg-surface-100 transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </td>
+    </tr>
   );
 }

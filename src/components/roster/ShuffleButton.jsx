@@ -80,7 +80,7 @@ export default function ShuffleButton({
       {isOpen && (
         <div
           className={clsx(
-            'absolute z-50 right-0 top-full mt-1.5',
+            'absolute z-50 left-0 top-full mt-1.5',
             'w-56 py-1.5',
             'bg-white rounded-xl border border-surface-200 shadow-xl'
           )}

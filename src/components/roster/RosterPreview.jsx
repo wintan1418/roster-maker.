@@ -12,7 +12,6 @@ import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import Avatar from '@/components/ui/Avatar';
 import { formatDate } from '@/lib/utils';
-import { getDemoMember, getDemoRolesForTeam } from '@/lib/demoData';
 
 /**
  * RosterPreview - Read-only preview of the roster before publishing.
@@ -21,15 +20,12 @@ import { getDemoMember, getDemoRolesForTeam } from '@/lib/demoData';
 export default function RosterPreview({
   roster,
   events,
+  roles = [],
+  members = [],
   assignments,
   onBack,
   onPublish,
 }) {
-  const roles = useMemo(
-    () => getDemoRolesForTeam(roster.team_id),
-    [roster.team_id]
-  );
-
   // Calculate stats
   const stats = useMemo(() => {
     const totalCells = events.length * roles.length;
@@ -55,6 +51,9 @@ export default function RosterPreview({
       fillPercentage: totalCells > 0 ? Math.round((filledCells / totalCells) * 100) : 0,
     };
   }, [events, roles, assignments]);
+
+  const findMember = (memberId) =>
+    members.find((m) => m.id === memberId || m.user_id === memberId) || null;
 
   return (
     <div className="space-y-6">
@@ -191,7 +190,7 @@ export default function RosterPreview({
                   const cellKey = `${event.id}-${role.id}`;
                   const assignment = assignments[cellKey];
                   const member = assignment?.memberId
-                    ? getDemoMember(assignment.memberId)
+                    ? findMember(assignment.memberId)
                     : null;
 
                   return (

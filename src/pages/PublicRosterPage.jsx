@@ -1,175 +1,126 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
+import { Loader2, AlertCircle } from 'lucide-react';
 
 import PublicRoster from '@/components/public/PublicRoster';
 import EmailLookup from '@/components/public/EmailLookup';
 import PersonalSchedule from '@/components/public/PersonalSchedule';
-
-// ─── Demo data ──────────────────────────────────────────────────────────────
-
-const DEMO_ORG = {
-  name: 'Grace Community Church',
-  address: '1425 Maple Avenue, Springfield, IL 62704',
-  phone: '(217) 555-0183',
-  email: 'info@gracecommunity.org',
-};
-
-const DEMO_TEAM = {
-  name: 'Music Ministry',
-};
-
-const DEMO_ROSTER = {
-  name: 'March 2026 Schedule',
-  period: 'March 2026',
-  status: 'Published',
-};
-
-const DEMO_ROLES = [
-  'Worship Leader',
-  'Vocalist',
-  'Keyboard',
-  'Electric Guitar',
-  'Bass Guitar',
-  'Drummer',
-  'Sound Engineer',
-];
-
-const DEMO_MEMBERS = [
-  {
-    id: '1',
-    name: 'Sarah Johnson',
-    email: 'sarah.johnson@email.com',
-    roles: ['Worship Leader', 'Vocalist'],
-  },
-  {
-    id: '2',
-    name: 'Michael Chen',
-    email: 'michael.chen@email.com',
-    roles: ['Keyboard'],
-  },
-  {
-    id: '3',
-    name: 'Emily Rodriguez',
-    email: 'emily.rodriguez@email.com',
-    roles: ['Vocalist'],
-  },
-  {
-    id: '4',
-    name: 'David Thompson',
-    email: 'david.thompson@email.com',
-    roles: ['Electric Guitar'],
-  },
-  {
-    id: '5',
-    name: 'Rachel Kim',
-    email: 'rachel.kim@email.com',
-    roles: ['Bass Guitar'],
-  },
-  {
-    id: '6',
-    name: 'James Williams',
-    email: 'james.williams@email.com',
-    roles: ['Drummer'],
-  },
-  {
-    id: '7',
-    name: 'Grace Okafor',
-    email: 'grace.okafor@email.com',
-    roles: ['Sound Engineer'],
-  },
-  {
-    id: '8',
-    name: 'Daniel Park',
-    email: 'daniel.park@email.com',
-    roles: ['Worship Leader', 'Electric Guitar'],
-  },
-];
-
-const DEMO_EVENTS = [
-  { id: 'e1', date: '2026-03-01', label: 'Sunday Worship Service' },
-  { id: 'e2', date: '2026-03-08', label: 'Sunday Worship Service' },
-  { id: 'e3', date: '2026-03-15', label: 'Sunday Worship Service' },
-  { id: 'e4', date: '2026-03-22', label: 'Sunday Worship Service' },
-  { id: 'e5', date: '2026-03-29', label: 'Palm Sunday Special Service' },
-];
-
-const DEMO_ASSIGNMENTS = {
-  e1: {
-    'Worship Leader': 'Sarah Johnson',
-    Vocalist: 'Emily Rodriguez',
-    Keyboard: 'Michael Chen',
-    'Electric Guitar': 'David Thompson',
-    'Bass Guitar': 'Rachel Kim',
-    Drummer: 'James Williams',
-    'Sound Engineer': 'Grace Okafor',
-  },
-  e2: {
-    'Worship Leader': 'Daniel Park',
-    Vocalist: 'Sarah Johnson',
-    Keyboard: 'Michael Chen',
-    'Electric Guitar': 'Daniel Park',
-    'Bass Guitar': 'Rachel Kim',
-    Drummer: 'James Williams',
-    'Sound Engineer': 'Grace Okafor',
-  },
-  e3: {
-    'Worship Leader': 'Sarah Johnson',
-    Vocalist: 'Emily Rodriguez',
-    Keyboard: 'Michael Chen',
-    'Electric Guitar': 'David Thompson',
-    'Bass Guitar': 'Rachel Kim',
-    Drummer: 'James Williams',
-    'Sound Engineer': 'Grace Okafor',
-  },
-  e4: {
-    'Worship Leader': 'Daniel Park',
-    Vocalist: 'Emily Rodriguez',
-    Keyboard: 'Michael Chen',
-    'Electric Guitar': 'David Thompson',
-    'Bass Guitar': 'Rachel Kim',
-    Drummer: 'James Williams',
-    'Sound Engineer': 'Grace Okafor',
-  },
-  e5: {
-    'Worship Leader': 'Sarah Johnson',
-    Vocalist: 'Emily Rodriguez',
-    Keyboard: 'Michael Chen',
-    'Electric Guitar': 'Daniel Park',
-    'Bass Guitar': 'Rachel Kim',
-    Drummer: 'James Williams',
-    'Sound Engineer': 'Grace Okafor',
-  },
-};
-
-// ─── Component ──────────────────────────────────────────────────────────────
+import useRosterStore from '@/stores/rosterStore';
 
 export default function PublicRosterPage() {
   const { shareToken } = useParams();
   const location = useLocation();
   const isPersonalView = location.pathname.endsWith('/me');
 
+  const { fetchPublicRoster } = useRosterStore();
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [rosterData, setRosterData] = useState(null);
   const [selectedMember, setSelectedMember] = useState(null);
 
-  // Derive personal duties for a given member
-  const personalDuties = useMemo(() => {
-    if (!selectedMember) return [];
+  // Fetch roster data on mount
+  useEffect(() => {
+    if (!shareToken) {
+      setError('No share token provided.');
+      setLoading(false);
+      return;
+    }
 
-    const duties = [];
-    DEMO_EVENTS.forEach((event) => {
-      const eventAssignments = DEMO_ASSIGNMENTS[event.id] || {};
-      Object.entries(eventAssignments).forEach(([role, memberName]) => {
-        if (memberName === selectedMember.name) {
-          duties.push({
-            date: event.date,
-            eventLabel: event.label,
-            role,
-          });
-        }
-      });
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetchPublicRoster(shareToken).then(({ data, error: err }) => {
+      if (cancelled) return;
+      if (err || !data) {
+        setError('Roster not found or no longer available.');
+      } else {
+        setRosterData(data);
+      }
+      setLoading(false);
     });
 
+    return () => { cancelled = true; };
+  }, [shareToken, fetchPublicRoster]);
+
+  // ── Transform fetched data into the format PublicRoster components expect ──
+
+  // roles: array of role name strings (columns)
+  const roles = useMemo(() => {
+    if (!rosterData?.roleConfig) return [];
+    return rosterData.roleConfig.map((r) => r.name);
+  }, [rosterData]);
+
+  // events: [{ id, date, label }]
+  const events = useMemo(() => {
+    if (!rosterData?.events) return [];
+    return rosterData.events.map((e) => ({
+      id: e.id,
+      date: e.event_date,
+      label: e.event_name,
+      time: e.event_time,
+    }));
+  }, [rosterData]);
+
+  // assignments: { [eventId]: { [roleName]: memberName } }
+  // Source format: { "eventId-roleSlotId": { memberId, manual } }
+  const displayAssignments = useMemo(() => {
+    if (!rosterData) return {};
+    const { assignments, roleConfig, members } = rosterData;
+
+    // Build lookup maps
+    const roleById = {};
+    for (const r of (roleConfig || [])) {
+      roleById[r.id] = r.name;
+    }
+    const memberById = {};
+    for (const m of (members || [])) {
+      memberById[m.id] = m;
+      if (m.user_id) memberById[m.user_id] = m;
+    }
+
+    const result = {};
+    for (const [key, value] of Object.entries(assignments || {})) {
+      if (!value?.memberId) continue;
+      const dashIdx = key.indexOf('-');
+      if (dashIdx === -1) continue;
+      const eventId = key.slice(0, dashIdx);
+      const roleSlotId = key.slice(dashIdx + 1);
+      const roleName = roleById[roleSlotId];
+      const member = memberById[value.memberId];
+      if (!roleName || !member) continue;
+
+      if (!result[eventId]) result[eventId] = {};
+      result[eventId][roleName] = member.name;
+    }
+    return result;
+  }, [rosterData]);
+
+  // members for EmailLookup: [{ id, name, email }]
+  const lookupMembers = useMemo(() => {
+    if (!rosterData?.members) return [];
+    return rosterData.members.map((m) => ({
+      id: m.id,
+      name: m.name,
+      email: m.email,
+    }));
+  }, [rosterData]);
+
+  // Personal duties for the selected member
+  const personalDuties = useMemo(() => {
+    if (!selectedMember || !rosterData) return [];
+    const duties = [];
+    for (const event of events) {
+      const eventAssignments = displayAssignments[event.id] || {};
+      for (const [role, memberName] of Object.entries(eventAssignments)) {
+        if (memberName === selectedMember.name) {
+          duties.push({ date: event.date, eventLabel: event.label, role });
+        }
+      }
+    }
     return duties;
-  }, [selectedMember]);
+  }, [selectedMember, rosterData, events, displayAssignments]);
 
   const handleMemberFound = useCallback((member) => {
     setSelectedMember(member);
@@ -179,42 +130,76 @@ export default function PublicRosterPage() {
     setSelectedMember(null);
   }, []);
 
-  // ── Personal view: /r/:shareToken/me ──────────────────────────────────────
+  // ── Loading / error states ────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3">
+        <Loader2 size={32} className="animate-spin text-primary-500" />
+        <p className="text-surface-500 text-sm">Loading roster...</p>
+      </div>
+    );
+  }
+
+  if (error || !rosterData) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3 text-center px-4">
+        <AlertCircle size={40} className="text-red-400" />
+        <h2 className="text-lg font-semibold text-surface-900">Roster Not Found</h2>
+        <p className="text-surface-500 text-sm max-w-sm">
+          {error || 'This roster may have been unpublished or the link is invalid.'}
+        </p>
+      </div>
+    );
+  }
+
+  const { roster, team, organization } = rosterData;
+
+  const orgInfo = {
+    name: organization?.name || team?.name || 'Organization',
+  };
+  const teamInfo = { name: team?.name || '' };
+  const rosterInfo = {
+    name: roster.title,
+    period: roster.start_date && roster.end_date
+      ? `${roster.start_date} – ${roster.end_date}`
+      : '',
+    status: 'Published',
+  };
+
+  // ── Personal view: /r/:shareToken/me ─────────────────────────────────────
   if (isPersonalView) {
-    // If a member has been looked up, show their schedule
     if (selectedMember) {
       return (
         <PersonalSchedule
-          organization={DEMO_ORG}
-          team={DEMO_TEAM}
-          roster={DEMO_ROSTER}
+          organization={orgInfo}
+          team={teamInfo}
+          roster={rosterInfo}
           member={selectedMember}
           duties={personalDuties}
           onBack={handleBackFromSchedule}
         />
       );
     }
-
-    // Otherwise show the email lookup form
     return (
       <EmailLookup
-        members={DEMO_MEMBERS}
-        organizationName={DEMO_ORG.name}
-        teamName={DEMO_TEAM.name}
+        members={lookupMembers}
+        organizationName={orgInfo.name}
+        teamName={teamInfo.name}
         onMemberFound={handleMemberFound}
       />
     );
   }
 
-  // ── Full roster view: /r/:shareToken ──────────────────────────────────────
+  // ── Full roster view: /r/:shareToken ─────────────────────────────────────
   return (
     <PublicRoster
-      organization={DEMO_ORG}
-      team={DEMO_TEAM}
-      roster={DEMO_ROSTER}
-      roles={DEMO_ROLES}
-      events={DEMO_EVENTS}
-      assignments={DEMO_ASSIGNMENTS}
+      organization={orgInfo}
+      team={teamInfo}
+      roster={rosterInfo}
+      roles={roles}
+      events={events}
+      assignments={displayAssignments}
     />
   );
 }

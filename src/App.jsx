@@ -8,12 +8,14 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import InvitePage from './pages/InvitePage';
+import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
 import TeamsPage from './pages/TeamsPage';
 import TeamDetailPage from './pages/TeamDetailPage';
 import RostersPage from './pages/RostersPage';
 import RosterEditorPage from './pages/RosterEditorPage';
 import OrgSettings from './pages/OrgSettings';
+import MemberSchedulePage from './pages/MemberSchedulePage';
 import PublicRosterPage from './pages/PublicRosterPage';
 import NotFound from './pages/NotFound';
 
@@ -39,6 +41,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/invite/:token" element={<InvitePage />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
 
         {/* Authenticated app routes (inside AppLayout) */}
         <Route element={<AppLayout />}>
@@ -49,6 +52,7 @@ export default function App() {
           <Route path="/rosters/new" element={<RosterEditorPage />} />
           <Route path="/rosters/:rosterId" element={<RosterEditorPage />} />
           <Route path="/org/settings" element={<OrgSettings />} />
+          <Route path="/my-schedule" element={<MemberSchedulePage />} />
         </Route>
 
         {/* Public shared roster routes (inside PublicLayout) */}

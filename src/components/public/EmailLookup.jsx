@@ -1,19 +1,18 @@
 import { useState, useCallback } from 'react';
-import { Mail, ArrowRight, AlertCircle, Search } from 'lucide-react';
+import { Mail, ArrowRight, AlertCircle, Search, Phone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 
+function looksLikePhone(value) {
+  const stripped = value.replace(/[\s\-()]/g, '');
+  return /^\+?\d{7,15}$/.test(stripped);
+}
+
 /**
- * Email lookup form for personal schedule.
- * Searches the provided members array for a matching email and
- * calls onMemberFound(member) on success.
- *
- * @param {Object}   props
- * @param {Array}    props.members          - [{ id, name, email, roles }]
- * @param {string}   props.organizationName - displayed in the header
- * @param {string}   props.teamName         - displayed in the subheader
- * @param {Function} props.onMemberFound    - (member) => void
+ * Email/Phone lookup form for personal schedule.
+ * Searches the provided members array for a matching email or phone,
+ * and calls onMemberFound(member) on success.
  */
 export default function EmailLookup({
   members,
@@ -21,7 +20,7 @@ export default function EmailLookup({
   teamName,
   onMemberFound,
 }) {
-  const [email, setEmail] = useState('');
+  const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -30,37 +29,53 @@ export default function EmailLookup({
       e.preventDefault();
       setError('');
 
-      const trimmed = email.trim().toLowerCase();
+      const trimmed = input.trim();
 
       if (!trimmed) {
-        setError('Please enter your email address.');
+        setError('Please enter your email address or phone number.');
         return;
       }
 
-      // Simple email validation
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-        setError('Please enter a valid email address.');
+      const isPhone = looksLikePhone(trimmed);
+
+      if (!isPhone && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+        setError('Please enter a valid email address or phone number.');
         return;
       }
 
       // Simulate a brief loading state for polish
       setLoading(true);
       setTimeout(() => {
-        const found = members.find(
-          (m) => m.email.toLowerCase() === trimmed
-        );
+        let found;
+
+        if (isPhone) {
+          // Look up by phone
+          const normalized = trimmed.replace(/[\s\-()]/g, '');
+          found = members.find(
+            (m) =>
+              m.phone &&
+              m.phone.replace(/[\s\-()]/g, '') === normalized
+          );
+        } else {
+          // Look up by email
+          found = members.find(
+            (m) => m.email.toLowerCase() === trimmed.toLowerCase()
+          );
+        }
 
         if (found) {
           onMemberFound(found);
         } else {
           setError(
-            "We couldn't find that email in this roster. Please check the address or contact your team leader."
+            isPhone
+              ? "We couldn't find that phone number in this roster. Please check the number or contact your team leader."
+              : "We couldn't find that email in this roster. Please check the address or contact your team leader."
           );
         }
         setLoading(false);
       }, 600);
     },
-    [email, members, onMemberFound]
+    [input, members, onMemberFound]
   );
 
   return (
@@ -75,7 +90,7 @@ export default function EmailLookup({
         View Your Personal Schedule
       </h2>
       <p className="text-sm text-surface-500 mt-2 text-center max-w-md">
-        Enter the email address associated with your membership at{' '}
+        Enter the email or phone number associated with your membership at{' '}
         <span className="font-medium text-surface-700">{organizationName}</span>{' '}
         to view your{' '}
         <span className="font-medium text-surface-700">{teamName}</span>{' '}
@@ -88,18 +103,18 @@ export default function EmailLookup({
         className="w-full max-w-sm mt-8 space-y-4"
       >
         <Input
-          type="email"
-          label="Email Address"
-          placeholder="you@example.com"
+          type="text"
+          label="Email or Phone Number"
+          placeholder="you@example.com or +234..."
           iconLeft={Mail}
-          value={email}
+          value={input}
           onChange={(e) => {
-            setEmail(e.target.value);
+            setInput(e.target.value);
             if (error) setError('');
           }}
           error={error}
           autoFocus
-          autoComplete="email"
+          autoComplete="email tel"
         />
 
         <Button
@@ -117,9 +132,9 @@ export default function EmailLookup({
       <div className="mt-6 flex items-start gap-2 text-xs text-surface-400 max-w-sm">
         <AlertCircle size={14} className="shrink-0 mt-0.5" />
         <p>
-          Your email must match the address your team leader used when adding
-          you to the roster. If you have trouble, reach out to your team leader
-          for help.
+          Your email or phone number must match what your team leader used when
+          adding you to the roster. If you have trouble, reach out to your team
+          leader for help.
         </p>
       </div>
     </div>

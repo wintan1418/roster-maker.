@@ -185,7 +185,7 @@ export default function RosterList({ rosters = [], onCreateNew }) {
                     {formatDate(roster.start_date, 'MMM d')} - {formatDate(roster.end_date, 'MMM d, yyyy')}
                   </span>
                   <span>
-                    {roster.event_count} event{roster.event_count !== 1 ? 's' : ''}
+                    {roster.events?.length ?? 0} event{(roster.events?.length ?? 0) !== 1 ? 's' : ''}
                   </span>
                 </div>
 

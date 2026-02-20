@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Users,
   Calendar,
+  CalendarDays,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -14,6 +15,7 @@ import { getInitials } from '@/lib/utils';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/my-schedule', label: 'My Schedule', icon: CalendarDays },
   { to: '/teams', label: 'Teams', icon: Users },
   { to: '/rosters', label: 'Rosters', icon: Calendar },
   { to: '/org/settings', label: 'Org Settings', icon: Settings },
@@ -48,9 +50,9 @@ export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }
           mobile
             ? 'fixed inset-y-0 left-0 z-50 w-64 shadow-2xl'
             : [
-                'relative z-30 hidden md:flex',
-                collapsed ? 'w-[72px]' : 'w-64',
-              ]
+              'relative z-30 hidden md:flex',
+              collapsed ? 'w-[72px]' : 'w-64',
+            ]
         )}
       >
         {/* Brand */}

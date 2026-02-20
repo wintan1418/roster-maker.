@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import {
   Send,
   Link2,
@@ -10,35 +10,83 @@ import {
   CalendarDays,
   Users,
   CheckCircle2,
+  MessageCircle,
+  Download,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
+import { toPng } from 'html-to-image';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import { formatDate, generateShareToken } from '@/lib/utils';
-import { getDemoRolesForTeam } from '@/lib/demoData';
 
 /**
- * RosterPublish - Publish confirmation and success state.
+ * Format a roster into a WhatsApp-friendly message with member names + phones.
+ */
+function formatRosterMessage({ roster, events, roles, assignments, members, shareLink }) {
+  const findMember = (memberId) =>
+    members.find((m) => m.id === memberId || m.user_id === memberId);
+
+  const lines = [];
+  lines.push(`*${roster.title}*`);
+  lines.push(`${roster.team_name || ''} | ${formatDate(roster.start_date, 'MMM d')} - ${formatDate(roster.end_date, 'MMM d, yyyy')}`);
+  lines.push('');
+
+  for (const event of events) {
+    const dateStr = formatDate(event.date, 'EEE, MMM d');
+    const timeStr = event.time ? ` (${event.time})` : '';
+    lines.push(`\u{1F4C5} *${dateStr}* - ${event.name}${timeStr}`);
+
+    let hasAssignment = false;
+    for (const role of roles) {
+      const cellKey = `${event.id}-${role.id}`;
+      const assignment = assignments[cellKey];
+      if (!assignment?.memberId) continue;
+      const member = findMember(assignment.memberId);
+      if (!member) continue;
+      hasAssignment = true;
+      const phone = member.phone ? ` (${member.phone})` : '';
+      lines.push(`  \u{1F3B5} ${role.name}: ${member.name}${phone}`);
+    }
+    if (!hasAssignment) {
+      lines.push('  _No assignments yet_');
+    }
+    lines.push('');
+  }
+
+  if (shareLink) {
+    lines.push(`\u{1F517} View full roster: ${shareLink}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * RosterPublish - Publish confirmation and success state with WhatsApp sharing.
  */
 export default function RosterPublish({
   roster,
   events,
+  roles = [],
+  members = [],
   assignments,
   onBack,
   onConfirmPublish,
 }) {
-  const [isPublished, setIsPublished] = useState(false);
+  const alreadyPublished = roster?.status === 'published';
+  const existingToken = roster?.share_token;
+
+  const [isPublished, setIsPublished] = useState(alreadyPublished);
   const [isPublishing, setIsPublishing] = useState(false);
   const [sendEmail, setSendEmail] = useState(true);
   const [generateLink, setGenerateLink] = useState(true);
-  const [shareLink, setShareLink] = useState('');
-  const [copied, setCopied] = useState(false);
-
-  const roles = useMemo(
-    () => getDemoRolesForTeam(roster.team_id),
-    [roster.team_id]
+  const [shareLink, setShareLink] = useState(
+    existingToken ? `${window.location.origin}/r/${existingToken}` : ''
   );
+  const [copied, setCopied] = useState(false);
+  const [whatsappCopied, setWhatsappCopied] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const rosterImageRef = useRef(null);
 
   // Stats
   const stats = useMemo(() => {
@@ -57,21 +105,38 @@ export default function RosterPublish({
     };
   }, [events, roles, assignments]);
 
+  // WhatsApp message
+  const rosterMessage = useMemo(() => {
+    if (!isPublished) return '';
+    return formatRosterMessage({ roster, events, roles, assignments, members, shareLink });
+  }, [isPublished, roster, events, roles, assignments, members, shareLink]);
+
+  const findMember = useCallback(
+    (memberId) => members.find((m) => m.id === memberId || m.user_id === memberId) || null,
+    [members]
+  );
+
   const handlePublish = async () => {
     setIsPublishing(true);
+    try {
+      let token = null;
+      if (generateLink) {
+        token = generateShareToken(16);
+      }
 
-    // Simulate publish action
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+      await onConfirmPublish?.(token);
 
-    if (generateLink) {
-      const token = generateShareToken(16);
-      setShareLink(`${window.location.origin}/r/${token}`);
+      if (token) {
+        setShareLink(`${window.location.origin}/r/${token}`);
+      }
+      setIsPublished(true);
+      toast.success('Roster published successfully!');
+    } catch (err) {
+      console.error('Publish failed:', err);
+      toast.error('Failed to publish roster. Please try again.');
+    } finally {
+      setIsPublishing(false);
     }
-
-    setIsPublishing(false);
-    setIsPublished(true);
-    onConfirmPublish?.();
-    toast.success('Roster published successfully!');
   };
 
   const handleCopy = async () => {
@@ -85,29 +150,69 @@ export default function RosterPublish({
     }
   };
 
+  const handleCopyWhatsApp = async () => {
+    try {
+      await navigator.clipboard.writeText(rosterMessage);
+      setWhatsappCopied(true);
+      toast.success('Roster message copied!');
+      setTimeout(() => setWhatsappCopied(false), 2000);
+    } catch {
+      toast.error('Failed to copy message');
+    }
+  };
+
+  const handleOpenWhatsApp = () => {
+    const url = `https://wa.me/?text=${encodeURIComponent(rosterMessage)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleDownloadImage = async () => {
+    if (!rosterImageRef.current) return;
+    setIsCapturing(true);
+    try {
+      const dataUrl = await toPng(rosterImageRef.current, {
+        backgroundColor: '#ffffff',
+        pixelRatio: 2,
+      });
+      const link = document.createElement('a');
+      link.download = `${roster.title.replace(/\s+/g, '_')}.png`;
+      link.href = dataUrl;
+      link.click();
+      toast.success('Roster image downloaded!');
+    } catch (err) {
+      console.error('Failed to capture image:', err);
+      toast.error('Failed to generate image');
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
   // Published success state
   if (isPublished) {
     return (
-      <div className="max-w-lg mx-auto text-center py-8">
-        <div
-          className={clsx(
-            'inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-6',
-            'bg-emerald-100'
-          )}
-        >
-          <PartyPopper size={32} className="text-emerald-600" />
+      <div className="max-w-2xl mx-auto space-y-6 py-8">
+        <div className="text-center">
+          <div
+            className={clsx(
+              'inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-6',
+              'bg-emerald-100'
+            )}
+          >
+            <PartyPopper size={32} className="text-emerald-600" />
+          </div>
+
+          <h2 className="text-2xl font-bold text-surface-900 mb-2">
+            Roster Published!
+          </h2>
+          <p className="text-surface-500 mb-6">
+            Your roster "{roster.title}" has been published and is now live.
+            {sendEmail && ' Email notifications will be sent to team members.'}
+          </p>
         </div>
 
-        <h2 className="text-2xl font-bold text-surface-900 mb-2">
-          Roster Published!
-        </h2>
-        <p className="text-surface-500 mb-6">
-          Your roster "{roster.title}" has been published and is now live.
-          {sendEmail && ' Email notifications will be sent to team members.'}
-        </p>
-
+        {/* Share link */}
         {shareLink && (
-          <Card className="text-left mb-6">
+          <Card className="text-left">
             <div className="flex items-center gap-2 mb-3">
               <Link2 size={16} className="text-primary-500" />
               <span className="text-sm font-semibold text-surface-900">
@@ -140,6 +245,102 @@ export default function RosterPublish({
           </Card>
         )}
 
+        {/* WhatsApp sharing */}
+        <Card className="text-left">
+          <div className="flex items-center gap-2 mb-3">
+            <MessageCircle size={16} className="text-emerald-500" />
+            <span className="text-sm font-semibold text-surface-900">
+              Share to WhatsApp
+            </span>
+          </div>
+          <p className="text-xs text-surface-500 mb-3">
+            Send the roster with member names and phone numbers to your WhatsApp group.
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              size="sm"
+              onClick={handleOpenWhatsApp}
+              className="bg-emerald-500 hover:bg-emerald-600 text-white"
+              iconLeft={MessageCircle}
+            >
+              Open WhatsApp
+            </Button>
+            <Button
+              variant={whatsappCopied ? 'primary' : 'outline'}
+              size="sm"
+              iconLeft={whatsappCopied ? Check : Copy}
+              onClick={handleCopyWhatsApp}
+            >
+              {whatsappCopied ? 'Copied' : 'Copy Message'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              iconLeft={isCapturing ? undefined : Download}
+              loading={isCapturing}
+              onClick={handleDownloadImage}
+            >
+              Download Image
+            </Button>
+          </div>
+        </Card>
+
+        {/* Hidden roster image for capture */}
+        <div className="overflow-hidden" style={{ position: 'absolute', left: '-9999px' }}>
+          <div ref={rosterImageRef} className="p-6 bg-white" style={{ width: '900px' }}>
+            <div className="mb-4">
+              <h2 className="text-xl font-bold text-surface-900">{roster.title}</h2>
+              <p className="text-sm text-surface-500">
+                {roster.team_name} &middot;{' '}
+                {formatDate(roster.start_date, 'MMM d')} - {formatDate(roster.end_date, 'MMM d, yyyy')}
+              </p>
+            </div>
+            <table className="w-full text-sm border-collapse border border-surface-300">
+              <thead>
+                <tr className="bg-surface-800 text-white">
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase border border-surface-300">
+                    Date / Event
+                  </th>
+                  {roles.map((role) => (
+                    <th key={role.id} className="px-3 py-2 text-center text-xs font-semibold uppercase border border-surface-300">
+                      {role.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((event, i) => (
+                  <tr key={event.id} className={i % 2 === 0 ? 'bg-white' : 'bg-surface-50'}>
+                    <td className="px-3 py-2 border border-surface-300">
+                      <div className="font-semibold text-surface-900">{event.name}</div>
+                      <div className="text-xs text-surface-500">{formatDate(event.date, 'EEE, MMM d')}</div>
+                      {event.time && <div className="text-xs text-surface-400">{event.time}</div>}
+                    </td>
+                    {roles.map((role) => {
+                      const cellKey = `${event.id}-${role.id}`;
+                      const assignment = assignments[cellKey];
+                      const member = assignment?.memberId ? findMember(assignment.memberId) : null;
+                      return (
+                        <td key={role.id} className="px-3 py-2 text-center border border-surface-300">
+                          {member ? (
+                            <span className="text-xs font-medium text-surface-800">{member.name}</span>
+                          ) : (
+                            <span className="text-xs text-surface-300">--</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-3 text-xs text-surface-400 text-center">
+              Generated by RosterFlow
+            </p>
+          </div>
+        </div>
+
+        {/* Actions */}
         <div className="flex items-center justify-center gap-3">
           <Button
             variant="outline"
