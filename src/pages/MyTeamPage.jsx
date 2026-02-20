@@ -335,9 +335,13 @@ export default function MyTeamPage() {
                 <div className="w-16 h-16 rounded-2xl overflow-hidden mb-4 shadow-lg border-2 border-white/60">
                   <img src="/logo.jpg" alt="" className="w-full h-full object-cover" />
                 </div>
-                <p className="text-sm font-semibold text-surface-700">No messages yet</p>
-                <p className="text-xs mt-0.5 text-surface-500">Be the first to say hello!</p>
-                <p className="text-[11px] mt-0.5 text-surface-400">Type @ to mention someone</p>
+                <p className="text-sm font-semibold text-surface-700">
+                  Welcome to {selectedTeam?.name || 'your team'} chat!
+                </p>
+                <p className="text-xs mt-1.5 text-surface-500 max-w-[220px] leading-relaxed">
+                  This is the beginning of your {selectedTeam?.name} conversation. Say hello!
+                </p>
+                <p className="text-[11px] mt-1 text-surface-400">Type @ to mention someone</p>
               </div>
             )}
 

@@ -14,10 +14,13 @@ import useAuthStore from '@/stores/authStore';
  *   <RequireAdmin><TeamsPage /></RequireAdmin>
  */
 export default function RequireAdmin({ children }) {
-    const { orgRole, initialized } = useAuthStore();
+    const { orgRole, initialized, user } = useAuthStore();
 
     // Wait for auth to initialize
     if (!initialized) return null;
+
+    // User is confirmed logged in but org membership hasn't loaded yet — hold
+    if (user && orgRole === null) return null;
 
     const isAdmin = orgRole === 'super_admin' || orgRole === 'team_admin';
 

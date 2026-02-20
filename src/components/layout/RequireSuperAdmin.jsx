@@ -6,9 +6,12 @@ import useAuthStore from '@/stores/authStore';
  * team_admin and member are redirected to /dashboard.
  */
 export default function RequireSuperAdmin({ children }) {
-  const { orgRole, initialized } = useAuthStore();
+  const { orgRole, initialized, user } = useAuthStore();
 
   if (!initialized) return null;
+
+  // User is confirmed logged in but org membership hasn't loaded yet — hold
+  if (user && orgRole === null) return null;
 
   if (orgRole !== 'super_admin') {
     return <Navigate to="/dashboard" replace />;
