@@ -12,13 +12,16 @@ import {
   CheckCircle2,
   MessageCircle,
   Download,
+  Mail,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import { toPng } from 'html-to-image';
+import { jsPDF } from 'jspdf';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import { formatDate, generateShareToken } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
 
 /**
  * Format a roster into a WhatsApp-friendly message with member names + phones.
@@ -119,16 +122,92 @@ export default function RosterPublish({
   const handlePublish = async () => {
     setIsPublishing(true);
     try {
-      let token = null;
-      if (generateLink) {
-        token = generateShareToken(16);
+      const token = generateLink ? generateShareToken(16) : null;
+      const computedShareLink = token ? `${window.location.origin}/r/${token}` : shareLink;
+
+      // 1. Capture roster image as PNG + PDF for email attachments
+      let pngBase64 = null;
+      let pdfBase64 = null;
+      if (rosterImageRef.current) {
+        try {
+          const dataUrl = await toPng(rosterImageRef.current, {
+            backgroundColor: '#ffffff',
+            pixelRatio: 2,
+          });
+          pngBase64 = dataUrl.split(',')[1];
+
+          // Build PDF from the PNG
+          const imgEl = rosterImageRef.current;
+          const w = imgEl.offsetWidth;
+          const h = imgEl.offsetHeight;
+          const pdf = new jsPDF({ orientation: w > h ? 'landscape' : 'portrait', unit: 'px', format: [w, h] });
+          pdf.addImage(dataUrl, 'PNG', 0, 0, w, h);
+          pdfBase64 = pdf.output('datauristring').split(',')[1];
+        } catch (imgErr) {
+          console.warn('Image capture failed, continuing without attachment:', imgErr);
+        }
       }
 
+      // 2. Publish the roster (updates DB status + share_token)
       await onConfirmPublish?.(token);
+      if (token) setShareLink(computedShareLink);
 
-      if (token) {
-        setShareLink(`${window.location.origin}/r/${token}`);
+      // 3. Send emails if opted in
+      if (sendEmail && supabase) {
+        try {
+          // Fetch songs grouped by event
+          const eventIds = events.map((e) => e.id);
+          const { data: songRows } = await supabase
+            .from('event_songs')
+            .select('roster_event_id, title, artist, key, sort_order')
+            .in('roster_event_id', eventIds)
+            .order('sort_order');
+
+          const songsByEvent = {};
+          for (const s of (songRows ?? [])) {
+            if (!songsByEvent[s.roster_event_id]) songsByEvent[s.roster_event_id] = [];
+            songsByEvent[s.roster_event_id].push({ title: s.title, artist: s.artist, key: s.key });
+          }
+
+          // Call send-roster-emails edge function
+          const { error: fnErr } = await supabase.functions.invoke('send-roster-emails', {
+            body: {
+              roster: {
+                title: roster.title,
+                team_name: roster.team_name,
+                start_date: roster.start_date,
+                end_date: roster.end_date,
+              },
+              events: events.map((e) => ({
+                id: e.id,
+                name: e.name,
+                date: e.date,
+                time: e.time,
+                rehearsal_time: e.rehearsalTime,
+                rehearsal_note: e.rehearsalNote,
+              })),
+              roles,
+              assignments,
+              members: members.map((m) => ({
+                id: m.id,
+                user_id: m.user_id,
+                name: m.name,
+                email: m.email,
+                phone: m.phone,
+              })),
+              songs_by_event: songsByEvent,
+              png_base64: pngBase64,
+              pdf_base64: pdfBase64,
+              share_link: computedShareLink,
+            },
+          });
+          if (fnErr) console.warn('Email function error:', fnErr.message);
+          else toast.success('Emails sent to team members!', { icon: '📧' });
+        } catch (emailErr) {
+          console.warn('Email sending failed:', emailErr);
+        }
       }
+
       setIsPublished(true);
       toast.success('Roster published successfully!');
     } catch (err) {
@@ -187,6 +266,64 @@ export default function RosterPublish({
     }
   };
 
+  // Hidden roster table — always rendered for PNG/PDF capture
+  const hiddenRosterImage = (
+    <div className="overflow-hidden" style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+      <div ref={rosterImageRef} className="p-6 bg-white" style={{ width: '900px' }}>
+        <div className="mb-4">
+          <h2 className="text-xl font-bold text-surface-900">{roster.title}</h2>
+          <p className="text-sm text-surface-500">
+            {roster.team_name} &middot;{' '}
+            {formatDate(roster.start_date, 'MMM d')} - {formatDate(roster.end_date, 'MMM d, yyyy')}
+          </p>
+        </div>
+        <table className="w-full text-sm border-collapse border border-surface-300">
+          <thead>
+            <tr className="bg-surface-800 text-white">
+              <th className="px-3 py-2 text-left text-xs font-semibold uppercase border border-surface-300">
+                Date / Event
+              </th>
+              {roles.map((role) => (
+                <th key={role.id} className="px-3 py-2 text-center text-xs font-semibold uppercase border border-surface-300">
+                  {role.name}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {events.map((event, i) => (
+              <tr key={event.id} className={i % 2 === 0 ? 'bg-white' : 'bg-surface-50'}>
+                <td className="px-3 py-2 border border-surface-300">
+                  <div className="font-semibold text-surface-900">{event.name}</div>
+                  <div className="text-xs text-surface-500">{formatDate(event.date, 'EEE, MMM d')}</div>
+                  {event.rehearsalTime && <div className="text-xs text-amber-600">Rehearsal: {event.rehearsalTime}</div>}
+                  {event.time && <div className="text-xs text-surface-400">Service: {event.time}</div>}
+                </td>
+                {roles.map((role) => {
+                  const cellKey = `${event.id}-${role.id}`;
+                  const assignment = assignments[cellKey];
+                  const member = assignment?.memberId ? findMember(assignment.memberId) : null;
+                  return (
+                    <td key={role.id} className="px-3 py-2 text-center border border-surface-300">
+                      {member ? (
+                        <span className="text-xs font-medium text-surface-800">{member.name}</span>
+                      ) : (
+                        <span className="text-xs text-surface-300">--</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-3 text-xs text-surface-400 text-center">
+          Generated by RosterFlow
+        </p>
+      </div>
+    </div>
+  );
+
   // Published success state
   if (isPublished) {
     return (
@@ -206,7 +343,7 @@ export default function RosterPublish({
           </h2>
           <p className="text-surface-500 mb-6">
             Your roster "{roster.title}" has been published and is now live.
-            {sendEmail && ' Email notifications will be sent to team members.'}
+            {sendEmail && ' Personalized emails with your roster and attachments have been sent to all assigned members.'}
           </p>
         </div>
 
@@ -285,60 +422,7 @@ export default function RosterPublish({
           </div>
         </Card>
 
-        {/* Hidden roster image for capture */}
-        <div className="overflow-hidden" style={{ position: 'absolute', left: '-9999px' }}>
-          <div ref={rosterImageRef} className="p-6 bg-white" style={{ width: '900px' }}>
-            <div className="mb-4">
-              <h2 className="text-xl font-bold text-surface-900">{roster.title}</h2>
-              <p className="text-sm text-surface-500">
-                {roster.team_name} &middot;{' '}
-                {formatDate(roster.start_date, 'MMM d')} - {formatDate(roster.end_date, 'MMM d, yyyy')}
-              </p>
-            </div>
-            <table className="w-full text-sm border-collapse border border-surface-300">
-              <thead>
-                <tr className="bg-surface-800 text-white">
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase border border-surface-300">
-                    Date / Event
-                  </th>
-                  {roles.map((role) => (
-                    <th key={role.id} className="px-3 py-2 text-center text-xs font-semibold uppercase border border-surface-300">
-                      {role.name}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((event, i) => (
-                  <tr key={event.id} className={i % 2 === 0 ? 'bg-white' : 'bg-surface-50'}>
-                    <td className="px-3 py-2 border border-surface-300">
-                      <div className="font-semibold text-surface-900">{event.name}</div>
-                      <div className="text-xs text-surface-500">{formatDate(event.date, 'EEE, MMM d')}</div>
-                      {event.time && <div className="text-xs text-surface-400">{event.time}</div>}
-                    </td>
-                    {roles.map((role) => {
-                      const cellKey = `${event.id}-${role.id}`;
-                      const assignment = assignments[cellKey];
-                      const member = assignment?.memberId ? findMember(assignment.memberId) : null;
-                      return (
-                        <td key={role.id} className="px-3 py-2 text-center border border-surface-300">
-                          {member ? (
-                            <span className="text-xs font-medium text-surface-800">{member.name}</span>
-                          ) : (
-                            <span className="text-xs text-surface-300">--</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="mt-3 text-xs text-surface-400 text-center">
-              Generated by RosterFlow
-            </p>
-          </div>
-        </div>
+        {hiddenRosterImage}
 
         {/* Actions */}
         <div className="flex items-center justify-center gap-3">
@@ -441,7 +525,7 @@ export default function RosterPublish({
                 Send email notifications
               </p>
               <p className="text-xs text-surface-400">
-                Team members will receive their assignment details via email.
+                Each assigned member receives a personalized email with their duties, the full timetable, and PNG + PDF attachments.
               </p>
             </div>
           </label>
@@ -485,6 +569,8 @@ export default function RosterPublish({
           Publish Now
         </Button>
       </div>
+
+      {hiddenRosterImage}
     </div>
   );
 }

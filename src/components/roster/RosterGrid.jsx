@@ -393,10 +393,16 @@ export default function RosterGrid({
                           <Calendar size={11} />
                           {formatDate(event.date, 'EEE, MMM d')}
                         </span>
+                        {event.rehearsalTime && (
+                          <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
+                            <Clock size={11} />
+                            Rehearsal {event.rehearsalTime}
+                          </span>
+                        )}
                         {event.time && (
                           <span className="inline-flex items-center gap-1 text-xs text-surface-400">
                             <Clock size={11} />
-                            {event.time}
+                            Service {event.time}
                           </span>
                         )}
                         {/* Event action buttons */}
@@ -497,6 +503,10 @@ export default function RosterGrid({
         <SetlistModal
           event={songsEvent}
           teamId={roster.team_id}
+          roles={roles}
+          assignments={assignments}
+          members={members}
+          isAdmin={isAdmin}
           onClose={() => setSongsEvent(null)}
         />
       )}
@@ -517,7 +527,7 @@ export default function RosterGrid({
 
 // ── Setlist Modal (Feature 6) ─────────────────────────────────────────────
 
-function SetlistModal({ event, teamId, onClose }) {
+function SetlistModal({ event, teamId, roles = [], assignments = {}, members = [], isAdmin = false, onClose }) {
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
@@ -525,6 +535,18 @@ function SetlistModal({ event, teamId, onClose }) {
   const [key, setKey] = useState('');
   const [adding, setAdding] = useState(false);
   const { user } = useAuthStore();
+
+  // Allow write if admin OR if current user is assigned as a worship leader for this event
+  const currentMember = useMemo(() => members.find(m => m.user_id === user?.id), [members, user?.id]);
+  const canEdit = useMemo(() => {
+    if (isAdmin) return true;
+    if (!currentMember) return false;
+    return roles.some(role => {
+      if (!role.name.toLowerCase().includes('worship')) return false;
+      const cellKey = `${event.id}-${role.id}`;
+      return assignments[cellKey]?.memberId === currentMember.id;
+    });
+  }, [isAdmin, currentMember, roles, assignments, event.id]);
 
   useEffect(() => {
     if (!supabase || !event?.id) return;
@@ -952,14 +974,16 @@ function AddEventRow({ colSpan, onAddEvent, rosterStartDate, rosterEndDate }) {
   const [name, setName] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
+  const [rehearsalTime, setRehearsalTime] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!name.trim() || !date) return;
-    onAddEvent({ name: name.trim(), date, time: time || null });
+    onAddEvent({ name: name.trim(), date, time: time || null, rehearsalTime: rehearsalTime || null });
     setName('');
     setDate('');
     setTime('');
+    setRehearsalTime('');
     setOpen(false);
   };
 
@@ -1025,7 +1049,7 @@ function AddEventRow({ colSpan, onAddEvent, rosterStartDate, rosterEndDate }) {
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-semibold text-surface-400 uppercase tracking-wider">
-              Time <span className="text-surface-300">(optional)</span>
+              Service Time <span className="text-surface-300">(optional)</span>
             </label>
             <input
               type="time"
@@ -1035,6 +1059,21 @@ function AddEventRow({ colSpan, onAddEvent, rosterStartDate, rosterEndDate }) {
                 'px-3 py-1.5 text-sm rounded-md',
                 'bg-surface-50 border border-surface-200 text-surface-900',
                 'focus:outline-none focus:ring-1 focus:ring-primary-500'
+              )}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">
+              Rehearsal Time <span className="text-surface-300">(optional)</span>
+            </label>
+            <input
+              type="time"
+              value={rehearsalTime}
+              onChange={(e) => setRehearsalTime(e.target.value)}
+              className={clsx(
+                'px-3 py-1.5 text-sm rounded-md',
+                'bg-amber-50 border border-amber-200 text-surface-900',
+                'focus:outline-none focus:ring-1 focus:ring-amber-400'
               )}
             />
           </div>
@@ -1048,7 +1087,7 @@ function AddEventRow({ colSpan, onAddEvent, rosterStartDate, rosterEndDate }) {
             </button>
             <button
               type="button"
-              onClick={() => { setOpen(false); setName(''); setDate(''); setTime(''); }}
+              onClick={() => { setOpen(false); setName(''); setDate(''); setTime(''); setRehearsalTime(''); }}
               className="px-3 py-1.5 rounded-md text-sm text-surface-500 hover:bg-surface-100 transition-colors cursor-pointer"
             >
               Cancel

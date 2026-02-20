@@ -151,6 +151,8 @@ export default function RosterEditorPage() {
               name: e.event_name,
               date: e.event_date,
               time: e.event_time,
+              rehearsalTime: e.rehearsal_time,
+              rehearsalNote: e.rehearsal_note,
               sort_order: e.sort_order,
             }))
         );
@@ -232,6 +234,7 @@ export default function RosterEditorPage() {
             event_name: evt.name,
             event_date: evt.date,
             event_time: evt.time || null,
+            rehearsal_time: evt.rehearsalTime || null,
             sort_order: idx,
           }));
 
@@ -247,6 +250,7 @@ export default function RosterEditorPage() {
             name: e.event_name,
             date: e.event_date,
             time: e.event_time,
+            rehearsalTime: e.rehearsal_time,
             sort_order: e.sort_order,
           }));
         }
@@ -414,7 +418,7 @@ export default function RosterEditorPage() {
   // ── Event row management ──────────────────────────────────────────────────
 
   const handleAddEvent = useCallback(
-    async ({ name, date, time }) => {
+    async ({ name, date, time, rehearsalTime }) => {
       if (!roster?.id || !supabase) return;
       try {
         const { data, error } = await supabase
@@ -424,6 +428,7 @@ export default function RosterEditorPage() {
             event_name: name,
             event_date: date,
             event_time: time || null,
+            rehearsal_time: rehearsalTime || null,
             sort_order: events.length,
           })
           .select()
@@ -433,7 +438,7 @@ export default function RosterEditorPage() {
 
         setEvents((prev) => [
           ...prev,
-          { id: data.id, roster_id: data.roster_id, name: data.event_name, date: data.event_date, time: data.event_time, sort_order: data.sort_order },
+          { id: data.id, roster_id: data.roster_id, name: data.event_name, date: data.event_date, time: data.event_time, rehearsalTime: data.rehearsal_time, sort_order: data.sort_order },
         ]);
         toast.success(`Added "${name}" event`);
       } catch (err) {
