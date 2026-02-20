@@ -224,15 +224,37 @@ export default function MemberSchedulePage() {
     }, [user]);
 
     // ── Fetch assignments ─────────────────────────────────────────────────
+    // Assignments live inside rosters.signature_fields JSON, NOT in a
+    // separate roster_assignments table.  The JSON shape is:
+    //   { roleConfig: [...], assignments: { "eventId-roleSlotId": { memberId, manual } } }
+    // where memberId is team_members.id.
     useEffect(() => {
         if (!supabase || !user || !selectedTeam) return;
 
         async function fetchAssignments() {
             setLoading(true);
             try {
+                // 1. Get the current user's team_members row(s) for this team
+                const { data: tmRows } = await supabase
+                    .from('team_members')
+                    .select('id')
+                    .eq('team_id', selectedTeam.id)
+                    .eq('user_id', user.id);
+
+                const myTeamMemberIds = new Set((tmRows || []).map((r) => r.id));
+
+                if (myTeamMemberIds.size === 0) {
+                    // user isn't in this team — nothing to show
+                    setPersonalAssignments([]);
+                    setGeneralRoster(null);
+                    setLoading(false);
+                    return;
+                }
+
+                // 2. Fetch published rosters WITH signature_fields
                 const { data: rosters, error: rErr } = await supabase
                     .from('rosters')
-                    .select('id, title, start_date, end_date, status')
+                    .select('id, title, start_date, end_date, status, signature_fields')
                     .eq('team_id', selectedTeam.id)
                     .eq('status', 'published')
                     .order('start_date', { ascending: false })
@@ -240,74 +262,116 @@ export default function MemberSchedulePage() {
 
                 if (rErr) throw rErr;
 
-                if (rosters && rosters.length > 0) {
-                    const rosterIds = rosters.map((r) => r.id);
-
-                    const { data: events, error: eErr } = await supabase
-                        .from('roster_events')
-                        .select('id, roster_id, event_name, event_date, event_time, sort_order')
-                        .in('roster_id', rosterIds)
-                        .order('event_date', { ascending: true });
-
-                    if (eErr) throw eErr;
-
-                    const eventIds = (events || []).map((e) => e.id);
-
-                    const { data: myAssignments, error: aErr } = await supabase
-                        .from('roster_assignments')
-                        .select(`
-              id,
-              roster_event_id,
-              is_manual,
-              team_role:team_roles (id, name, category)
-            `)
-                        .in('roster_event_id', eventIds)
-                        .eq('user_id', user.id);
-
-                    if (aErr) throw aErr;
-
-                    const enriched = (myAssignments || []).map((a) => {
-                        const event = events.find((e) => e.id === a.roster_event_id);
-                        const roster = rosters.find((r) => r.id === event?.roster_id);
-                        return {
-                            ...a,
-                            event,
-                            roster,
-                            date: event?.event_date,
-                            eventLabel: event?.event_name,
-                            role: a.team_role?.name || 'Unassigned',
-                        };
-                    });
-
-                    enriched.sort((a, b) => new Date(a.date) - new Date(b.date));
-                    setPersonalAssignments(enriched);
-
-                    // General tab — latest roster
-                    const latestRoster = rosters[0];
-                    const latestEvents = (events || []).filter(
-                        (e) => e.roster_id === latestRoster.id
-                    );
-                    const latestEventIds = latestEvents.map((e) => e.id);
-
-                    const { data: allAssignments } = await supabase
-                        .from('roster_assignments')
-                        .select(`
-              id,
-              roster_event_id,
-              user:profiles (id, full_name, email),
-              team_role:team_roles (id, name, category)
-            `)
-                        .in('roster_event_id', latestEventIds);
-
-                    setGeneralRoster({
-                        roster: latestRoster,
-                        events: latestEvents,
-                        assignments: allAssignments || [],
-                    });
-                } else {
+                if (!rosters || rosters.length === 0) {
                     setPersonalAssignments([]);
                     setGeneralRoster(null);
+                    setLoading(false);
+                    return;
                 }
+
+                const rosterIds = rosters.map((r) => r.id);
+
+                // 3. Fetch roster events
+                const { data: events, error: eErr } = await supabase
+                    .from('roster_events')
+                    .select('id, roster_id, event_name, event_date, event_time, sort_order')
+                    .in('roster_id', rosterIds)
+                    .order('event_date', { ascending: true });
+
+                if (eErr) throw eErr;
+
+                // 4. Fetch team roles for name lookup
+                const { data: teamRoles } = await supabase
+                    .from('team_roles')
+                    .select('id, name, category')
+                    .eq('team_id', selectedTeam.id);
+
+                const roleMap = {};
+                for (const r of (teamRoles || [])) roleMap[r.id] = r;
+
+                // 5. Fetch all team members + profiles for General tab
+                const { data: allMembers } = await supabase
+                    .from('team_members')
+                    .select('id, user_id, profile:profiles (id, full_name, email)')
+                    .eq('team_id', selectedTeam.id);
+
+                const memberMap = {};
+                for (const m of (allMembers || [])) memberMap[m.id] = m;
+
+                // 6. Parse signature_fields from each roster
+                const myDuties = [];
+
+                // For General tab — we'll collect from the latest roster
+                const latestRoster = rosters[0];
+                const latestEvents = (events || []).filter((e) => e.roster_id === latestRoster.id);
+                const generalAssignments = [];
+
+                for (const roster of rosters) {
+                    const sf = roster.signature_fields;
+                    if (!sf || typeof sf !== 'object') continue;
+
+                    const assignments = sf.assignments || {};
+                    const roleConfig = sf.roleConfig || [];
+
+                    // Build a role-slot-id → role name map from roleConfig
+                    const slotNameMap = {};
+                    for (const slot of roleConfig) {
+                        slotNameMap[slot.id] = slot.name || slot.originalRoleName || 'Role';
+                    }
+
+                    const rosterEvents = (events || []).filter((e) => e.roster_id === roster.id);
+
+                    for (const [cellKey, value] of Object.entries(assignments)) {
+                        if (!value?.memberId) continue;
+
+                        const [eventId, ...roleParts] = cellKey.split('-');
+                        const roleSlotId = roleParts.join('-');
+                        const event = rosterEvents.find((e) => e.id === eventId);
+                        if (!event) continue;
+
+                        // Resolve role name: check roleConfig first, then team_roles table
+                        let roleName = slotNameMap[roleSlotId] || 'Role';
+                        // If roleSlotId references a team_roles.id directly
+                        if (roleName === 'Role' && roleMap[roleSlotId]) {
+                            roleName = roleMap[roleSlotId].name;
+                        }
+
+                        // Personal tab — is this assignment for me?
+                        if (myTeamMemberIds.has(value.memberId)) {
+                            myDuties.push({
+                                id: cellKey,
+                                event,
+                                roster: { id: roster.id, title: roster.title, start_date: roster.start_date, end_date: roster.end_date },
+                                date: event.event_date,
+                                eventLabel: event.event_name,
+                                role: roleName,
+                                is_manual: value.manual || false,
+                            });
+                        }
+
+                        // General tab — only from latest roster
+                        if (roster.id === latestRoster.id) {
+                            const member = memberMap[value.memberId];
+                            generalAssignments.push({
+                                id: cellKey,
+                                roster_event_id: eventId,
+                                user: member?.profile
+                                    ? { id: member.profile.id, full_name: member.profile.full_name, email: member.profile.email }
+                                    : null,
+                                team_role: { id: roleSlotId, name: roleName },
+                            });
+                        }
+                    }
+                }
+
+                myDuties.sort((a, b) => new Date(a.date) - new Date(b.date));
+                setPersonalAssignments(myDuties);
+
+                setGeneralRoster({
+                    roster: latestRoster,
+                    events: latestEvents,
+                    assignments: generalAssignments,
+                });
             } catch (err) {
                 console.error('Failed to fetch assignments:', err.message);
             } finally {
