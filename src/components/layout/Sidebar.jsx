@@ -12,6 +12,7 @@ import {
   Pencil,
   Check,
   X,
+  MessageSquare,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -22,15 +23,17 @@ import { getInitials } from '@/lib/utils';
 const adminNavItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/my-schedule', label: 'My Schedule', icon: CalendarDays },
+  { to: '/my-team', label: 'My Team', icon: MessageSquare },
   { to: '/teams', label: 'Teams', icon: Users },
   { to: '/rosters', label: 'Rosters', icon: Calendar },
   { to: '/org/settings', label: 'Org Settings', icon: Settings },
 ];
 
-// Restricted member navigation — only Dashboard and My Schedule
+// Restricted member navigation
 const memberNavItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/my-schedule', label: 'My Schedule', icon: CalendarDays },
+  { to: '/my-team', label: 'My Team', icon: MessageSquare },
 ];
 
 export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }) {

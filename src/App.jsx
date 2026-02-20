@@ -18,6 +18,7 @@ import RostersPage from './pages/RostersPage';
 import RosterEditorPage from './pages/RosterEditorPage';
 import OrgSettings from './pages/OrgSettings';
 import MemberSchedulePage from './pages/MemberSchedulePage';
+import MyTeamPage from './pages/MyTeamPage';
 import PublicRosterPage from './pages/PublicRosterPage';
 import NotFound from './pages/NotFound';
 
@@ -51,6 +52,7 @@ export default function App() {
           {/* Available to ALL authenticated users */}
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/my-schedule" element={<MemberSchedulePage />} />
+          <Route path="/my-team" element={<MyTeamPage />} />
 
           {/* Admin-only routes — members get redirected to /dashboard */}
           <Route element={<RequireAdmin />}>
