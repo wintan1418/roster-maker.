@@ -34,37 +34,40 @@ export default function PublicRosterPage() {
     setLoading(true);
     setError(null);
 
-    fetchPublicRoster(shareToken).then(async ({ data, error: err }) => {
+    fetchPublicRoster(shareToken).then(({ data, error: err }) => {
       if (cancelled) return;
       if (err || !data) {
         setError('Roster not found or no longer available.');
-        setLoading(false);
-        return;
-      }
-      setRosterData(data);
-
-      // Fetch songs for all events
-      if (supabase && data.events?.length) {
-        const eventIds = data.events.map((e) => e.id);
-        const { data: songRows } = await supabase
-          .from('event_songs')
-          .select('roster_event_id, title, artist, key, sort_order')
-          .in('roster_event_id', eventIds)
-          .order('sort_order');
-        if (!cancelled && songRows) {
-          const map = {};
-          for (const s of songRows) {
-            if (!map[s.roster_event_id]) map[s.roster_event_id] = [];
-            map[s.roster_event_id].push({ title: s.title, artist: s.artist, key: s.key });
-          }
-          setSongsByEvent(map);
-        }
+      } else {
+        setRosterData(data);
       }
       setLoading(false);
     });
 
     return () => { cancelled = true; };
   }, [shareToken, fetchPublicRoster]);
+
+  // Fetch songs separately once rosterData is loaded
+  useEffect(() => {
+    if (!supabase || !rosterData?.events?.length) return;
+    let cancelled = false;
+    const eventIds = rosterData.events.map((e) => e.id);
+    supabase
+      .from('event_songs')
+      .select('roster_event_id, title, artist, key, sort_order')
+      .in('roster_event_id', eventIds)
+      .order('sort_order')
+      .then(({ data: songRows }) => {
+        if (cancelled || !songRows) return;
+        const map = {};
+        for (const s of songRows) {
+          if (!map[s.roster_event_id]) map[s.roster_event_id] = [];
+          map[s.roster_event_id].push({ title: s.title, artist: s.artist, key: s.key });
+        }
+        setSongsByEvent(map);
+      });
+    return () => { cancelled = true; };
+  }, [rosterData]);
 
   // ── Transform fetched data into the format PublicRoster components expect ──
 
