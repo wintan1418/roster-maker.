@@ -3,12 +3,12 @@ import { Toaster } from 'react-hot-toast';
 
 import AppLayout from './components/layout/AppLayout';
 import PublicLayout from './components/layout/PublicLayout';
+import RequireAdmin from './components/layout/RequireAdmin';
 
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import InvitePage from './pages/InvitePage';
-import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
 import TeamsPage from './pages/TeamsPage';
 import TeamDetailPage from './pages/TeamDetailPage';
@@ -41,18 +41,22 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/invite/:token" element={<InvitePage />} />
-        <Route path="/auth/callback" element={<AuthCallback />} />
 
         {/* Authenticated app routes (inside AppLayout) */}
         <Route element={<AppLayout />}>
+          {/* Available to ALL authenticated users */}
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/teams" element={<TeamsPage />} />
-          <Route path="/teams/:teamId" element={<TeamDetailPage />} />
-          <Route path="/rosters" element={<RostersPage />} />
-          <Route path="/rosters/new" element={<RosterEditorPage />} />
-          <Route path="/rosters/:rosterId" element={<RosterEditorPage />} />
-          <Route path="/org/settings" element={<OrgSettings />} />
           <Route path="/my-schedule" element={<MemberSchedulePage />} />
+
+          {/* Admin-only routes — members get redirected to /dashboard */}
+          <Route element={<RequireAdmin />}>
+            <Route path="/teams" element={<TeamsPage />} />
+            <Route path="/teams/:teamId" element={<TeamDetailPage />} />
+            <Route path="/rosters" element={<RostersPage />} />
+            <Route path="/rosters/new" element={<RosterEditorPage />} />
+            <Route path="/rosters/:rosterId" element={<RosterEditorPage />} />
+            <Route path="/org/settings" element={<OrgSettings />} />
+          </Route>
         </Route>
 
         {/* Public shared roster routes (inside PublicLayout) */}

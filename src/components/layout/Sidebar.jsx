@@ -13,7 +13,8 @@ import clsx from 'clsx';
 import useAuthStore from '@/stores/authStore';
 import { getInitials } from '@/lib/utils';
 
-const navItems = [
+// Full admin navigation
+const adminNavItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/my-schedule', label: 'My Schedule', icon: CalendarDays },
   { to: '/teams', label: 'Teams', icon: Users },
@@ -21,12 +22,26 @@ const navItems = [
   { to: '/org/settings', label: 'Org Settings', icon: Settings },
 ];
 
+// Restricted member navigation — only Dashboard and My Schedule
+const memberNavItems = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/my-schedule', label: 'My Schedule', icon: CalendarDays },
+];
+
 export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }) {
   const navigate = useNavigate();
-  const { user, profile, signOut } = useAuthStore();
+  const { user, profile, orgRole, signOut } = useAuthStore();
 
   const displayName = profile?.full_name || user?.user_metadata?.full_name || 'User';
   const initials = getInitials(displayName);
+
+  const isAdmin = orgRole === 'super_admin' || orgRole === 'team_admin';
+  const navItems = isAdmin ? adminNavItems : memberNavItems;
+  const roleLabel = orgRole === 'super_admin'
+    ? 'Super Admin'
+    : orgRole === 'team_admin'
+      ? 'Team Admin'
+      : 'Member';
 
   const handleSignOut = async () => {
     await signOut();
@@ -130,7 +145,7 @@ export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }
               <div className="flex-1 overflow-hidden">
                 <p className="truncate text-sm font-medium text-white">{displayName}</p>
                 <p className="truncate text-xs text-surface-400">
-                  {profile?.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                  {roleLabel}
                 </p>
               </div>
             )}
