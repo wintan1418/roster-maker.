@@ -367,6 +367,7 @@ export default function RosterCreator({ onComplete, onCancel }) {
           name: '',
           date: defaultDate,
           time: '09:00',
+          rehearsalTime: '',
           session: 'morning',
         },
       ].sort((a, b) => a.date.localeCompare(b.date)),
@@ -426,6 +427,7 @@ export default function RosterCreator({ onComplete, onCancel }) {
           name: `${dayName} ${session.label} Service`,
           date: format(day, 'yyyy-MM-dd'),
           time: session.time,
+          rehearsalTime: '',
           session: sessionId,
         });
       });
@@ -929,6 +931,16 @@ export default function RosterCreator({ onComplete, onCancel }) {
                           <option key={s.id} value={s.id}>{s.label}</option>
                         ))}
                       </select>
+
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-amber-500 font-semibold whitespace-nowrap">🕐 Rehearsal</span>
+                        <input
+                          type="time"
+                          value={event.rehearsalTime || ''}
+                          onChange={(e) => updateEvent(event.id, 'rehearsalTime', e.target.value)}
+                          className="w-28 px-2 py-1 text-sm rounded border border-amber-200 text-amber-700 bg-amber-50 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                        />
+                      </div>
 
                       <button
                         onClick={() => removeEvent(event.id)}
