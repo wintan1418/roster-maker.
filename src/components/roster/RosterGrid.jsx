@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   Save,
   Eye,
@@ -9,6 +9,11 @@ import {
   Pin,
   Shuffle as ShuffleIcon,
   Info,
+  Plus,
+  Copy,
+  X,
+  MoreVertical,
+  ChevronDown,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -30,10 +35,14 @@ export default function RosterGrid({
   events,
   roles = [],
   members = [],
+  teamRoles = [],
   initialAssignments = {},
   onPreview,
   onPublish,
   onSave,
+  onDuplicateRole,
+  onRemoveRole,
+  onAddRole,
   readOnly = false,
 }) {
   const [assignments, setAssignments] = useState(initialAssignments);
@@ -273,19 +282,22 @@ export default function RosterGrid({
                 </span>
               </th>
 
-              {/* Role columns */}
+              {/* Role columns with dropdown menu */}
               {roles.map((role) => (
-                <th
+                <ColumnHeader
                   key={role.id}
-                  className={clsx(
-                    'px-3 py-3 text-center text-xs font-semibold tracking-wide text-surface-500 uppercase',
-                    'border-b border-surface-200',
-                    'min-w-[160px]'
-                  )}
-                >
-                  {role.name}
-                </th>
+                  role={role}
+                  readOnly={readOnly}
+                  onDuplicate={() => onDuplicateRole?.(role)}
+                  onRemove={() => onRemoveRole?.(role)}
+                  canRemove={roles.length > 1}
+                />
               ))}
+
+              {/* Add Role column */}
+              {!readOnly && (
+                <AddRoleColumn teamRoles={teamRoles} onAddRole={onAddRole} />
+              )}
             </tr>
           </thead>
 
@@ -349,6 +361,9 @@ export default function RosterGrid({
                       </td>
                     );
                   })}
+
+                  {/* Empty cell for add-role column */}
+                  {!readOnly && <td />}
                 </tr>
               );
             })}
@@ -366,7 +381,210 @@ export default function RosterGrid({
           <Pin size={12} className="text-amber-500" />
           Pinned assignments are preserved during shuffle.
         </span>
+        {!readOnly && (
+          <span className="inline-flex items-center gap-1">
+            <MoreVertical size={12} />
+            Click a column header to add/remove role columns.
+          </span>
+        )}
       </div>
     </div>
+  );
+}
+
+// ── Column Header with dropdown ─────────────────────────────────────────────
+
+function ColumnHeader({ role, readOnly, onDuplicate, onRemove, canRemove }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  return (
+    <th
+      ref={ref}
+      className={clsx(
+        'px-3 py-3 text-center text-xs font-semibold tracking-wide text-surface-500 uppercase',
+        'border-b border-surface-200',
+        'min-w-[160px]',
+        'relative group'
+      )}
+    >
+      <div className="flex items-center justify-center gap-1">
+        <span>{role.name}</span>
+        {!readOnly && (
+          <button
+            onClick={() => setOpen(!open)}
+            className={clsx(
+              'p-0.5 rounded transition-all duration-150 cursor-pointer',
+              open
+                ? 'opacity-100 bg-surface-200'
+                : 'opacity-0 group-hover:opacity-100 hover:bg-surface-200'
+            )}
+          >
+            <ChevronDown size={12} />
+          </button>
+        )}
+      </div>
+
+      {open && !readOnly && (
+        <div
+          className={clsx(
+            'absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50',
+            'w-44 bg-white rounded-lg border border-surface-200 shadow-lg',
+            'py-1 text-left'
+          )}
+          style={{ animation: 'popoverIn 0.12s ease-out' }}
+        >
+          <button
+            onClick={() => { onDuplicate(); setOpen(false); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-surface-700 hover:bg-surface-50 transition-colors cursor-pointer"
+          >
+            <Copy size={14} className="text-primary-500" />
+            <span className="normal-case tracking-normal font-normal">Add another</span>
+          </button>
+          {canRemove && (
+            <button
+              onClick={() => { onRemove(); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+            >
+              <X size={14} />
+              <span className="normal-case tracking-normal font-normal">Remove column</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes popoverIn {
+          from { opacity: 0; transform: translateX(-50%) translateY(-4px) scale(0.97); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+        }
+      `}</style>
+    </th>
+  );
+}
+
+// ── Add Role Column ─────────────────────────────────────────────────────────
+
+function AddRoleColumn({ teamRoles = [], onAddRole }) {
+  const [open, setOpen] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  const handleAdd = (name) => {
+    if (!name.trim()) return;
+    onAddRole?.(name.trim());
+    setOpen(false);
+    setCustomName('');
+  };
+
+  return (
+    <th
+      ref={ref}
+      className={clsx(
+        'px-2 py-3 text-center',
+        'border-b border-surface-200',
+        'min-w-[60px] w-[60px]',
+        'relative'
+      )}
+    >
+      <button
+        onClick={() => setOpen(!open)}
+        className={clsx(
+          'w-8 h-8 rounded-lg border-2 border-dashed flex items-center justify-center mx-auto',
+          'transition-all duration-200 cursor-pointer',
+          open
+            ? 'border-primary-400 bg-primary-50 text-primary-600'
+            : 'border-surface-300 text-surface-400 hover:border-primary-400 hover:text-primary-500 hover:bg-primary-50'
+        )}
+      >
+        <Plus size={16} />
+      </button>
+
+      {open && (
+        <div
+          className={clsx(
+            'absolute top-full right-0 mt-1 z-50',
+            'w-56 bg-white rounded-lg border border-surface-200 shadow-lg',
+            'text-left overflow-hidden'
+          )}
+          style={{ animation: 'addRoleIn 0.12s ease-out' }}
+        >
+          {/* Custom name input */}
+          <div className="p-2 border-b border-surface-100">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleAdd(customName);
+              }}
+              className="flex gap-1"
+            >
+              <input
+                type="text"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="Custom role..."
+                autoFocus
+                className={clsx(
+                  'flex-1 px-2 py-1.5 text-sm rounded-md',
+                  'bg-surface-50 border border-surface-200',
+                  'placeholder:text-surface-400 text-surface-900',
+                  'focus:outline-none focus:ring-1 focus:ring-primary-500'
+                )}
+              />
+              <button
+                type="submit"
+                disabled={!customName.trim()}
+                className="px-2 py-1.5 rounded-md bg-primary-500 text-white text-xs font-medium disabled:opacity-40 hover:bg-primary-600 transition-colors cursor-pointer"
+              >
+                Add
+              </button>
+            </form>
+          </div>
+
+          {/* Team roles quick-pick */}
+          {teamRoles.length > 0 && (
+            <div className="max-h-48 overflow-y-auto py-1">
+              <p className="px-3 py-1 text-[10px] font-semibold text-surface-400 uppercase tracking-wider">
+                Team Roles
+              </p>
+              {teamRoles.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => handleAdd(r.name)}
+                  className="w-full text-left px-3 py-1.5 text-sm text-surface-700 hover:bg-surface-50 transition-colors cursor-pointer normal-case tracking-normal font-normal"
+                >
+                  {r.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes addRoleIn {
+          from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+      `}</style>
+    </th>
   );
 }

@@ -239,6 +239,110 @@ export default function RosterEditorPage() {
     setCurrentAssignments(assignments);
   }, []);
 
+  // ── Role column management ─────────────────────────────────────────────
+
+  const handleDuplicateRole = useCallback((roleSlot) => {
+    setRoleSlots((prev) => {
+      // Find all slots with the same base role name (strip trailing " N")
+      const baseName = roleSlot.originalRole?.name || roleSlot.name.replace(/\s+\d+$/, '');
+      const siblings = prev.filter(
+        (s) => (s.originalRole?.name || s.name.replace(/\s+\d+$/, '')) === baseName
+      );
+      const maxIndex = Math.max(...siblings.map((s) => s.slotIndex || 1), 0);
+      const newIndex = maxIndex + 1;
+
+      // Renumber all existing siblings to ensure they have numbers
+      const renumbered = prev.map((s) => {
+        const sBase = s.originalRole?.name || s.name.replace(/\s+\d+$/, '');
+        if (sBase !== baseName) return s;
+        // If there was only 1 before and it had no number, give it "1"
+        if (siblings.length === 1 && s.slotIndex === 1 && !s.name.match(/\s+\d+$/)) {
+          return { ...s, id: `${s.originalRole?.id || s.id}__1`, name: `${baseName} 1`, slotIndex: 1 };
+        }
+        return s;
+      });
+
+      const newSlot = {
+        id: `${roleSlot.originalRole?.id || roleSlot.id.replace(/__\d+$/, '')}__${newIndex}`,
+        name: `${baseName} ${newIndex}`,
+        originalRole: roleSlot.originalRole || { name: baseName },
+        slotIndex: newIndex,
+      };
+
+      // Insert after the last sibling
+      const lastSiblingIdx = renumbered.reduce(
+        (acc, s, i) => ((s.originalRole?.name || s.name.replace(/\s+\d+$/, '')) === baseName ? i : acc),
+        -1
+      );
+
+      const result = [...renumbered];
+      result.splice(lastSiblingIdx + 1, 0, newSlot);
+      return result;
+    });
+    toast.success(`Added another ${roleSlot.originalRole?.name || roleSlot.name.replace(/\s+\d+$/, '')} column`);
+  }, []);
+
+  const handleRemoveRole = useCallback((roleSlot) => {
+    setRoleSlots((prev) => {
+      const baseName = roleSlot.originalRole?.name || roleSlot.name.replace(/\s+\d+$/, '');
+      const remaining = prev.filter((s) => s.id !== roleSlot.id);
+
+      // Renumber remaining siblings
+      let counter = 0;
+      const siblings = remaining.filter(
+        (s) => (s.originalRole?.name || s.name.replace(/\s+\d+$/, '')) === baseName
+      );
+
+      if (siblings.length === 1) {
+        // Only one left — remove the number suffix
+        return remaining.map((s) => {
+          if (s.id === siblings[0].id) {
+            return { ...s, name: baseName, slotIndex: 1, id: s.originalRole?.id || s.id.replace(/__\d+$/, '') };
+          }
+          return s;
+        });
+      }
+
+      // Multiple left — renumber sequentially
+      return remaining.map((s) => {
+        const sBase = s.originalRole?.name || s.name.replace(/\s+\d+$/, '');
+        if (sBase !== baseName) return s;
+        counter++;
+        return {
+          ...s,
+          slotIndex: counter,
+          name: `${baseName} ${counter}`,
+          id: `${s.originalRole?.id || s.id.replace(/__\d+$/, '')}__${counter}`,
+        };
+      });
+    });
+
+    // Clean up assignments for this role
+    setCurrentAssignments((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        if (key.endsWith(`-${roleSlot.id}`)) delete next[key];
+      }
+      return next;
+    });
+  }, []);
+
+  const handleAddRole = useCallback((roleName) => {
+    setRoleSlots((prev) => {
+      const newId = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      return [
+        ...prev,
+        {
+          id: newId,
+          name: roleName,
+          originalRole: { name: roleName, category: 'custom' },
+          slotIndex: 1,
+        },
+      ];
+    });
+    toast.success(`Added "${roleName}" column`);
+  }, []);
+
   const handleBackToEditor = useCallback(() => {
     setCurrentView(VIEW.EDITOR);
   }, []);
@@ -346,10 +450,14 @@ export default function RosterEditorPage() {
           events={events}
           roles={roleSlots}
           members={members}
+          teamRoles={teamRoles}
           initialAssignments={currentAssignments}
           onPreview={handlePreview}
           onPublish={handlePublish}
           onSave={handleSave}
+          onDuplicateRole={handleDuplicateRole}
+          onRemoveRole={handleRemoveRole}
+          onAddRole={handleAddRole}
           readOnly={roster.status === ROSTER_STATUS.PUBLISHED}
         />
       )}
