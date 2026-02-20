@@ -8,6 +8,7 @@ import RequireAdmin from './components/layout/RequireAdmin';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import AuthCallback from './pages/AuthCallback';
 import InvitePage from './pages/InvitePage';
 import Dashboard from './pages/Dashboard';
 import TeamsPage from './pages/TeamsPage';
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/invite/:token" element={<InvitePage />} />
 
         {/* Authenticated app routes (inside AppLayout) */}
