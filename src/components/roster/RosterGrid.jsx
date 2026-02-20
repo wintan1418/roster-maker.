@@ -48,6 +48,7 @@ export default function RosterGrid({
   onSave,
   onAddEvent,
   onRemoveEvent,
+  onUpdateEvent,
   onDuplicateRole,
   onRemoveRole,
   onAddRole,
@@ -393,12 +394,23 @@ export default function RosterGrid({
                           <Calendar size={11} />
                           {formatDate(event.date, 'EEE, MMM d')}
                         </span>
-                        {event.rehearsalTime && (
+                        {!readOnly && onUpdateEvent ? (
+                          <label className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium cursor-pointer">
+                            <Clock size={11} />
+                            <span>Rehearsal</span>
+                            <input
+                              type="time"
+                              value={event.rehearsalTime || ''}
+                              onChange={(e) => onUpdateEvent(event.id, { rehearsalTime: e.target.value || null })}
+                              className="w-24 px-1 py-0 text-xs rounded border border-amber-200 bg-amber-50 text-amber-700 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                            />
+                          </label>
+                        ) : event.rehearsalTime ? (
                           <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
                             <Clock size={11} />
                             Rehearsal {event.rehearsalTime}
                           </span>
-                        )}
+                        ) : null}
                         {event.time && (
                           <span className="inline-flex items-center gap-1 text-xs text-surface-400">
                             <Clock size={11} />

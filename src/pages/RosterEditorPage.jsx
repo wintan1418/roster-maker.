@@ -449,6 +449,32 @@ export default function RosterEditorPage() {
     [roster?.id, events.length]
   );
 
+  const handleUpdateEvent = useCallback(
+    async (eventId, fields) => {
+      if (!supabase) return;
+      try {
+        const dbFields = {};
+        if ('rehearsalTime' in fields) dbFields.rehearsal_time = fields.rehearsalTime || null;
+        if ('time' in fields) dbFields.event_time = fields.time || null;
+        if (Object.keys(dbFields).length === 0) return;
+
+        const { error } = await supabase
+          .from('roster_events')
+          .update(dbFields)
+          .eq('id', eventId);
+
+        if (error) throw error;
+        setEvents((prev) =>
+          prev.map((e) => (e.id === eventId ? { ...e, ...fields } : e))
+        );
+      } catch (err) {
+        console.error('Failed to update event:', err);
+        toast.error('Failed to update event');
+      }
+    },
+    []
+  );
+
   const handleRemoveEvent = useCallback(
     async (eventId) => {
       if (!supabase) return;
@@ -617,6 +643,7 @@ export default function RosterEditorPage() {
           onAddRole={handleAddRole}
           onAddEvent={handleAddEvent}
           onRemoveEvent={handleRemoveEvent}
+          onUpdateEvent={handleUpdateEvent}
           readOnly={false}
         />
       )}
