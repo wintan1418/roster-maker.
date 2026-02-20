@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   Send,
   Link2,
@@ -13,6 +13,7 @@ import {
   MessageCircle,
   Download,
   Mail,
+  Radio,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -25,9 +26,16 @@ import { supabase } from '@/lib/supabase';
 /**
  * Format a roster into a WhatsApp-friendly message with member names + phones.
  */
-function formatRosterMessage({ roster, events, roles, assignments, members, shareLink }) {
+function formatRosterMessage({ roster, events, roles, assignments, members, songsByEvent, shareLink }) {
   const findMember = (memberId) =>
     members.find((m) => m.id === memberId || m.user_id === memberId);
+
+  const fmtTime = (t) => {
+    if (!t) return '';
+    const [h, m] = t.split(':');
+    const hr = parseInt(h, 10);
+    return `${hr > 12 ? hr - 12 : hr || 12}:${m} ${hr >= 12 ? 'PM' : 'AM'}`;
+  };
 
   const lines = [];
   lines.push(`*${roster.title}*`);
@@ -36,8 +44,15 @@ function formatRosterMessage({ roster, events, roles, assignments, members, shar
 
   for (const event of events) {
     const dateStr = formatDate(event.date, 'EEE, MMM d');
-    const timeStr = event.time ? ` (${event.time})` : '';
+    const timeStr = event.time ? ` (${fmtTime(event.time)})` : '';
     lines.push(`\u{1F4C5} *${dateStr}* - ${event.name}${timeStr}`);
+
+    // Rehearsal date and/or time
+    if (event.rehearsalDate || event.rehearsalTime) {
+      const rehDate = event.rehearsalDate ? formatDate(event.rehearsalDate, 'EEE, MMM d') + ' ' : '';
+      const rehTime = event.rehearsalTime ? fmtTime(event.rehearsalTime) : '';
+      lines.push(`  \u{1F550} Rehearsal: ${rehDate}${rehTime}`);
+    }
 
     let hasAssignment = false;
     for (const role of roles) {
@@ -53,6 +68,14 @@ function formatRosterMessage({ roster, events, roles, assignments, members, shar
     if (!hasAssignment) {
       lines.push('  _No assignments yet_');
     }
+
+    // Songs for this event
+    const songs = (songsByEvent || {})[event.id] || [];
+    if (songs.length > 0) {
+      const songList = songs.map((s) => `${s.title}${s.key ? ` (${s.key})` : ''}`).join(', ');
+      lines.push(`  \u{1F3B6} Songs: ${songList}`);
+    }
+
     lines.push('');
   }
 
@@ -81,6 +104,7 @@ export default function RosterPublish({
   const [isPublished, setIsPublished] = useState(alreadyPublished);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [sendEmail, setSendEmail] = useState(true);
   const [generateLink, setGenerateLink] = useState(true);
   const [shareLink, setShareLink] = useState(
@@ -89,7 +113,27 @@ export default function RosterPublish({
   const [copied, setCopied] = useState(false);
   const [whatsappCopied, setWhatsappCopied] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [songsByEvent, setSongsByEvent] = useState({});
   const rosterImageRef = useRef(null);
+
+  // Fetch songs for all events once on mount
+  useEffect(() => {
+    if (!supabase || !events?.length) return;
+    const eventIds = events.map((e) => e.id);
+    supabase
+      .from('event_songs')
+      .select('roster_event_id, title, artist, key, sort_order')
+      .in('roster_event_id', eventIds)
+      .order('sort_order')
+      .then(({ data }) => {
+        const byEvent = {};
+        for (const s of (data ?? [])) {
+          if (!byEvent[s.roster_event_id]) byEvent[s.roster_event_id] = [];
+          byEvent[s.roster_event_id].push({ title: s.title, artist: s.artist, key: s.key });
+        }
+        setSongsByEvent(byEvent);
+      });
+  }, [events]);
 
   // Stats
   const stats = useMemo(() => {
@@ -108,11 +152,24 @@ export default function RosterPublish({
     };
   }, [events, roles, assignments]);
 
-  // WhatsApp message
+  // WhatsApp message — rebuilt whenever songs load or share link is set
   const rosterMessage = useMemo(() => {
     if (!isPublished) return '';
-    return formatRosterMessage({ roster, events, roles, assignments, members, shareLink });
-  }, [isPublished, roster, events, roles, assignments, members, shareLink]);
+    return formatRosterMessage({ roster, events, roles, assignments, members, songsByEvent, shareLink });
+  }, [isPublished, roster, events, roles, assignments, members, songsByEvent, shareLink]);
+
+  // Re-broadcast timetable to team chat (save assignments + post to chat)
+  const handleRebroadcast = useCallback(async () => {
+    setIsBroadcasting(true);
+    try {
+      await onConfirmPublish?.(existingToken || null);
+      toast.success('Timetable broadcast to team chat!', { icon: '📢' });
+    } catch (err) {
+      toast.error('Broadcast failed: ' + err.message);
+    } finally {
+      setIsBroadcasting(false);
+    }
+  }, [onConfirmPublish, existingToken]);
 
   const findMember = useCallback(
     (memberId) => members.find((m) => m.id === memberId || m.user_id === memberId) || null,
@@ -123,17 +180,20 @@ export default function RosterPublish({
     if (!supabase) return;
     setIsSendingEmail(true);
     try {
-      const eventIds = events.map((e) => e.id);
-      const { data: songRows } = await supabase
-        .from('event_songs')
-        .select('roster_event_id, title, artist, key, sort_order')
-        .in('roster_event_id', eventIds)
-        .order('sort_order');
-
-      const songsByEvent = {};
-      for (const s of (songRows ?? [])) {
-        if (!songsByEvent[s.roster_event_id]) songsByEvent[s.roster_event_id] = [];
-        songsByEvent[s.roster_event_id].push({ title: s.title, artist: s.artist, key: s.key });
+      // Use already-fetched songsByEvent state; re-fetch only if empty
+      let songs = songsByEvent;
+      if (Object.keys(songs).length === 0 && events?.length) {
+        const eventIds = events.map((e) => e.id);
+        const { data: songRows } = await supabase
+          .from('event_songs')
+          .select('roster_event_id, title, artist, key, sort_order')
+          .in('roster_event_id', eventIds)
+          .order('sort_order');
+        songs = {};
+        for (const s of (songRows ?? [])) {
+          if (!songs[s.roster_event_id]) songs[s.roster_event_id] = [];
+          songs[s.roster_event_id].push({ title: s.title, artist: s.artist, key: s.key });
+        }
       }
 
       const { data: fnData, error: fnErr } = await supabase.functions.invoke('send-roster-emails', {
@@ -161,7 +221,7 @@ export default function RosterPublish({
             email: m.email,
             phone: m.phone,
           })),
-          songs_by_event: songsByEvent,
+          songs_by_event: songs,
           share_link: computedShareLink || shareLink,
         },
       });
@@ -435,6 +495,14 @@ export default function RosterPublish({
             iconLeft={ArrowLeft}
           >
             Edit Roster
+          </Button>
+          <Button
+            variant="outline"
+            iconLeft={Radio}
+            loading={isBroadcasting}
+            onClick={handleRebroadcast}
+          >
+            Broadcast to Team
           </Button>
           <Button
             variant="outline"

@@ -547,7 +547,12 @@ export default function RosterEditorPage() {
         for (const event of sortedEvents) {
           const timeStr = event.time ? ` (${fmtTime(event.time)})` : '';
           lines.push(`📅 *${fmtDate(event.date)}* — ${event.name}${timeStr}`);
-          if (event.rehearsalTime) lines.push(`  🕐 Rehearsal: ${fmtTime(event.rehearsalTime)}`);
+          if (event.rehearsalDate || event.rehearsalTime) {
+            const rehDate = event.rehearsalDate
+              ? new Date(event.rehearsalDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' '
+              : '';
+            lines.push(`  🕐 Rehearsal: ${rehDate}${event.rehearsalTime ? fmtTime(event.rehearsalTime) : ''}`);
+          }
 
           let hasAny = false;
           for (const role of roleSlots) {
