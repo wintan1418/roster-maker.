@@ -37,9 +37,9 @@ export default function PublicRoster({
   organization,
   team,
   roster,
-  roles,
-  events,
-  assignments,
+  roles = [],
+  events = [],
+  assignments = {},
   songsByEvent = {},
 }) {
   const navigate = useNavigate();
@@ -68,12 +68,12 @@ export default function PublicRoster({
         <div className="flex items-start gap-3">
           {/* Organization avatar */}
           <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary-500 text-white font-bold text-sm shrink-0 print:bg-gray-700">
-            {organization.name
+            {(organization.name || 'R')
               .split(' ')
-              .map((w) => w[0])
+              .map((w) => w[0] || '')
               .join('')
               .slice(0, 2)
-              .toUpperCase()}
+              .toUpperCase() || 'R'}
           </div>
           <div className="min-w-0">
             <h1 className="text-xl font-bold text-surface-900 leading-tight print:text-black">
