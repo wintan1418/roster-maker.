@@ -684,6 +684,87 @@ export default function RosterEditorPage() {
     }
   }, [roster, user, handleSave]);
 
+  // ── Remind non-responders ──────────────────────────────────────────────
+  const handleRemindAvailability = useCallback(async () => {
+    if (!roster?.id || !roster?.team_id || !supabase) return;
+
+    try {
+      // 1. Fetch all team members
+      const { data: teamMemberRows } = await supabase
+        .from('team_members')
+        .select('user_id, profile:profiles(full_name, email)')
+        .eq('team_id', roster.team_id);
+
+      const allMembers = (teamMemberRows ?? []).map((m) => ({
+        user_id: m.user_id,
+        name: m.profile?.full_name || 'Unknown',
+        email: m.profile?.email || '',
+      }));
+
+      if (allMembers.length === 0) {
+        toast.error('No team members found');
+        return;
+      }
+
+      // 2. Check who has submitted availability for this roster's date range
+      const { data: availRows } = await supabase
+        .from('availability')
+        .select('user_id')
+        .eq('team_id', roster.team_id)
+        .gte('date', roster.start_date)
+        .lte('date', roster.end_date);
+
+      const submittedIds = new Set((availRows ?? []).map((r) => r.user_id));
+      const nonResponders = allMembers.filter((m) => !submittedIds.has(m.user_id));
+
+      if (nonResponders.length === 0) {
+        toast.success('Everyone has submitted their availability!');
+        return;
+      }
+
+      // 3. Build the availability link
+      let token = roster.availability_token;
+      if (!token) {
+        token = generateShareToken(16);
+        const { error: tokenErr } = await supabase
+          .from('rosters')
+          .update({ availability_token: token })
+          .eq('id', roster.id);
+        if (tokenErr) throw tokenErr;
+        setRoster((prev) => ({ ...prev, availability_token: token }));
+      }
+      const link = `${window.location.origin}/availability/check/${token}`;
+
+      // 4. Post reminder to team chat naming non-responders
+      const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+      const names = nonResponders.map((m) => `@${m.name}`).join(', ');
+
+      const lines = [];
+      lines.push(`🔔 *Availability Reminder: ${roster.title}*`);
+      lines.push(`${fmtDate(roster.start_date)} – ${fmtDate(roster.end_date)}`);
+      lines.push('');
+      lines.push(`The following members have not yet submitted their availability:`);
+      lines.push('');
+      lines.push(names);
+      lines.push('');
+      lines.push(`Please take a moment to mark your availability:`);
+      lines.push(`👉 ${link}`);
+
+      const { error: chatErr } = await supabase.from('team_messages').insert({
+        team_id: roster.team_id,
+        user_id: user?.id,
+        author_name: 'RosterFlow',
+        content: lines.join('\n'),
+      });
+      if (chatErr) console.error('Chat reminder failed:', chatErr);
+
+      toast.success(`Reminder sent! ${nonResponders.length} member${nonResponders.length !== 1 ? 's' : ''} haven't responded yet.`);
+    } catch (err) {
+      console.error('Remind availability failed:', err);
+      toast.error('Failed to send reminder: ' + (err.message || 'Unknown error'));
+    }
+  }, [roster, user]);
+
   const handleBackToRosters = useCallback(() => {
     navigate('/rosters');
   }, [navigate]);
@@ -756,6 +837,7 @@ export default function RosterEditorPage() {
           onRemoveEvent={handleRemoveEvent}
           onUpdateEvent={handleUpdateEvent}
           onRequestAvailability={handleRequestAvailability}
+          onRemindAvailability={handleRemindAvailability}
           readOnly={false}
         />
       )}

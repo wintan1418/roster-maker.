@@ -19,6 +19,7 @@ import {
   Check,
   AlertTriangle,
   ClipboardCheck,
+  Bell,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -55,6 +56,7 @@ export default function RosterGrid({
   onRemoveRole,
   onAddRole,
   onRequestAvailability,
+  onRemindAvailability,
   readOnly = false,
 }) {
   const [assignments, setAssignments] = useState(initialAssignments);
@@ -263,6 +265,16 @@ export default function RosterGrid({
             >
               <span className="hidden sm:inline">Request Availability</span>
               <span className="sm:hidden">Availability</span>
+            </Button>
+          )}
+          {!readOnly && onRemindAvailability && events.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              iconLeft={Bell}
+              onClick={onRemindAvailability}
+            >
+              <span className="hidden sm:inline">Remind</span>
             </Button>
           )}
           {!readOnly && (
