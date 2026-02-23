@@ -7,14 +7,17 @@ import {
   Calendar,
   Save,
   Inbox,
+  Users,
+  ChevronDown,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
+import Avatar from '@/components/ui/Avatar';
 import { supabase } from '@/lib/supabase';
 import useAuthStore from '@/stores/authStore';
-import { formatDate, getSessionFromTime } from '@/lib/utils';
+import { formatDate, getSessionFromTime, getInitials } from '@/lib/utils';
 
 function fmtTime(t) {
   if (!t) return '';
@@ -31,13 +34,25 @@ const SESSION_LABELS = {
 };
 
 export default function MemberAvailabilityView() {
-  const { user } = useAuthStore();
+  const { user, orgRole } = useAuthStore();
+  const isAdmin = orgRole === 'super_admin' || orgRole === 'team_admin';
 
   const [loading, setLoading] = useState(true);
   const [rosters, setRosters] = useState([]);
-  // { rosterId: { "date::session": boolean } }
+  const [teamMembers, setTeamMembers] = useState({}); // { teamId: [{ user_id, name }] }
+  // { `${rosterId}::${userId}`: { "date::session": boolean } }
   const [availabilityMap, setAvailabilityMap] = useState({});
-  const [savingRoster, setSavingRoster] = useState(null);
+  // Which member is selected per roster card: { rosterId: userId }
+  const [selectedMember, setSelectedMember] = useState({});
+  const [savingKey, setSavingKey] = useState(null);
+
+  // Get the effective user_id for a roster (selected member or self)
+  const getEffectiveUserId = useCallback((rosterId) => {
+    return selectedMember[rosterId] || user?.id;
+  }, [selectedMember, user?.id]);
+
+  // Availability key for a roster + user
+  const getAvailKey = useCallback((rosterId, userId) => `${rosterId}::${userId}`, []);
 
   useEffect(() => {
     if (!supabase || !user?.id) return;
@@ -62,7 +77,7 @@ export default function MemberAvailabilityView() {
           return;
         }
 
-        // 2. Get active rosters for those teams (draft or published, not past)
+        // 2. Get active rosters
         const today = new Date().toISOString().split('T')[0];
         const { data: rosterRows } = await supabase
           .from('rosters')
@@ -91,19 +106,46 @@ export default function MemberAvailabilityView() {
 
         if (cancelled) return;
 
-        // 4. Fetch existing availability
-        const { data: availRows } = await supabase
+        // 4. If admin, fetch all team members for those teams
+        let membersMap = {};
+        if (isAdmin) {
+          const { data: allMembers } = await supabase
+            .from('team_members')
+            .select('team_id, user_id, profile:profiles(full_name)')
+            .in('team_id', teamIds);
+
+          if (cancelled) return;
+
+          for (const m of allMembers ?? []) {
+            if (!membersMap[m.team_id]) membersMap[m.team_id] = [];
+            membersMap[m.team_id].push({
+              user_id: m.user_id,
+              name: m.profile?.full_name || 'Unknown',
+            });
+          }
+          // Sort each team's members alphabetically
+          for (const tid of Object.keys(membersMap)) {
+            membersMap[tid].sort((a, b) => a.name.localeCompare(b.name));
+          }
+        }
+
+        // 5. Fetch existing availability — for self (always) + all members if admin
+        let availQuery = supabase
           .from('availability')
-          .select('date, session, is_available, team_id')
-          .eq('user_id', user.id)
+          .select('user_id, date, session, is_available, team_id')
           .in('team_id', teamIds);
 
+        if (!isAdmin) {
+          availQuery = availQuery.eq('user_id', user.id);
+        }
+
+        const { data: availRows } = await availQuery;
         if (cancelled) return;
 
-        // Build existing availability lookup: "teamId::date::session" → is_available
+        // Build existing lookup: "userId::teamId::date::session" → is_available
         const existingLookup = {};
         for (const row of availRows ?? []) {
-          existingLookup[`${row.team_id}::${row.date}::${row.session}`] = row.is_available;
+          existingLookup[`${row.user_id}::${row.team_id}::${row.date}::${row.session}`] = row.is_available;
         }
 
         // Group events by roster_id
@@ -117,7 +159,7 @@ export default function MemberAvailabilityView() {
         const teamNameMap = {};
         for (const t of teams) teamNameMap[t.id] = t.name;
 
-        // Build enriched rosters and per-roster availability maps
+        // Build enriched rosters
         const enrichedRosters = [];
         const availMap = {};
 
@@ -125,29 +167,36 @@ export default function MemberAvailabilityView() {
           const rEvents = (eventsByRoster[r.id] ?? []).sort(
             (a, b) => a.event_date.localeCompare(b.event_date) || (a.sort_order ?? 0) - (b.sort_order ?? 0)
           );
-          if (rEvents.length === 0) continue; // skip rosters with no events
-
-          // Build initial availability for this roster
-          const rosterAvail = {};
-          for (const event of rEvents) {
-            const session = getSessionFromTime(event.event_time);
-            const key = `${event.event_date}::${session}`;
-            if (key in rosterAvail) continue;
-            const lookupKey = `${r.team_id}::${event.event_date}::${session}`;
-            rosterAvail[key] = existingLookup[lookupKey] !== false;
-          }
+          if (rEvents.length === 0) continue;
 
           enrichedRosters.push({
             ...r,
             team_name: teamNameMap[r.team_id] || '',
             events: rEvents,
           });
-          availMap[r.id] = rosterAvail;
+
+          // Build availability for self
+          const selfKey = `${r.id}::${user.id}`;
+          availMap[selfKey] = buildRosterAvail(rEvents, r.team_id, user.id, existingLookup);
+
+          // Build availability for all team members if admin
+          if (isAdmin && membersMap[r.team_id]) {
+            for (const m of membersMap[r.team_id]) {
+              if (m.user_id === user.id) continue; // already done
+              const mKey = `${r.id}::${m.user_id}`;
+              availMap[mKey] = buildRosterAvail(rEvents, r.team_id, m.user_id, existingLookup);
+            }
+          }
         }
 
         if (!cancelled) {
           setRosters(enrichedRosters);
+          setTeamMembers(membersMap);
           setAvailabilityMap(availMap);
+          // Default selected member to self for each roster
+          const defaultSelected = {};
+          for (const r of enrichedRosters) defaultSelected[r.id] = user.id;
+          setSelectedMember(defaultSelected);
         }
       } catch (err) {
         console.error('Failed to load availability:', err);
@@ -159,37 +208,49 @@ export default function MemberAvailabilityView() {
 
     loadData();
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, isAdmin]);
 
   const handleToggle = useCallback((rosterId, dateSessionKey) => {
-    setAvailabilityMap((prev) => ({
-      ...prev,
-      [rosterId]: {
-        ...prev[rosterId],
-        [dateSessionKey]: !prev[rosterId]?.[dateSessionKey],
-      },
-    }));
-  }, []);
+    setAvailabilityMap((prev) => {
+      const userId = selectedMember[rosterId] || user?.id;
+      const key = `${rosterId}::${userId}`;
+      return {
+        ...prev,
+        [key]: {
+          ...prev[key],
+          [dateSessionKey]: !prev[key]?.[dateSessionKey],
+        },
+      };
+    });
+  }, [selectedMember, user?.id]);
 
   const handleMarkAll = useCallback((rosterId) => {
     setAvailabilityMap((prev) => {
-      const rosterAvail = { ...prev[rosterId] };
-      for (const key of Object.keys(rosterAvail)) rosterAvail[key] = true;
-      return { ...prev, [rosterId]: rosterAvail };
+      const userId = selectedMember[rosterId] || user?.id;
+      const key = `${rosterId}::${userId}`;
+      const rosterAvail = { ...prev[key] };
+      for (const k of Object.keys(rosterAvail)) rosterAvail[k] = true;
+      return { ...prev, [key]: rosterAvail };
     });
+  }, [selectedMember, user?.id]);
+
+  const handleSelectMember = useCallback((rosterId, userId) => {
+    setSelectedMember((prev) => ({ ...prev, [rosterId]: userId }));
   }, []);
 
   const handleSave = useCallback(async (rosterId) => {
     const roster = rosters.find((r) => r.id === rosterId);
-    const avail = availabilityMap[rosterId];
-    if (!roster || !avail || !supabase || !user?.id) return;
+    const effectiveUserId = selectedMember[rosterId] || user?.id;
+    const availKey = `${rosterId}::${effectiveUserId}`;
+    const avail = availabilityMap[availKey];
+    if (!roster || !avail || !supabase || !effectiveUserId) return;
 
-    setSavingRoster(rosterId);
+    setSavingKey(availKey);
     try {
       const rows = Object.entries(avail).map(([key, isAvailable]) => {
         const [date, session] = key.split('::');
         return {
-          user_id: user.id,
+          user_id: effectiveUserId,
           team_id: roster.team_id,
           date,
           session,
@@ -203,14 +264,18 @@ export default function MemberAvailabilityView() {
         .upsert(rows, { onConflict: 'user_id,team_id,date,session' });
 
       if (upsertErr) throw upsertErr;
-      toast.success(`Availability saved for ${roster.title}!`);
+
+      const memberName = effectiveUserId === user?.id
+        ? 'you'
+        : (teamMembers[roster.team_id]?.find((m) => m.user_id === effectiveUserId)?.name || 'member');
+      toast.success(`Availability saved for ${memberName}!`);
     } catch (err) {
       console.error('Failed to save availability:', err);
       toast.error('Failed to save: ' + (err.message || 'Unknown error'));
     } finally {
-      setSavingRoster(null);
+      setSavingKey(null);
     }
-  }, [rosters, availabilityMap, user?.id]);
+  }, [rosters, availabilityMap, selectedMember, user?.id, teamMembers]);
 
   // ── Loading ──
   if (loading) {
@@ -231,7 +296,9 @@ export default function MemberAvailabilityView() {
         </div>
         <h2 className="text-lg font-bold text-surface-900">No Active Rosters</h2>
         <p className="text-sm text-surface-500">
-          When your team admin creates a roster, it will appear here for you to mark your availability.
+          {isAdmin
+            ? 'Create a roster with events and it will appear here.'
+            : 'When your team admin creates a roster, it will appear here for you to mark your availability.'}
         </p>
       </div>
     );
@@ -240,37 +307,70 @@ export default function MemberAvailabilityView() {
   // ── Roster cards ──
   return (
     <div className="max-w-lg mx-auto space-y-8">
-      {/* Page header */}
       <div>
         <h1 className="text-xl font-bold text-surface-900 flex items-center gap-2">
           <CalendarCheck size={22} className="text-primary-500" />
           Availability
         </h1>
         <p className="text-sm text-surface-500 mt-1">
-          Mark your availability for upcoming rosters
+          {isAdmin
+            ? 'Mark availability for yourself or your team members'
+            : 'Mark your availability for upcoming rosters'}
         </p>
       </div>
 
-      {rosters.map((roster) => (
-        <RosterCard
-          key={roster.id}
-          roster={roster}
-          availability={availabilityMap[roster.id] || {}}
-          saving={savingRoster === roster.id}
-          onToggle={(key) => handleToggle(roster.id, key)}
-          onMarkAll={() => handleMarkAll(roster.id)}
-          onSave={() => handleSave(roster.id)}
-        />
-      ))}
+      {rosters.map((roster) => {
+        const effectiveUserId = selectedMember[roster.id] || user?.id;
+        const availKey = `${roster.id}::${effectiveUserId}`;
+        return (
+          <RosterCard
+            key={roster.id}
+            roster={roster}
+            availability={availabilityMap[availKey] || {}}
+            saving={savingKey === availKey}
+            onToggle={(key) => handleToggle(roster.id, key)}
+            onMarkAll={() => handleMarkAll(roster.id)}
+            onSave={() => handleSave(roster.id)}
+            isAdmin={isAdmin}
+            members={teamMembers[roster.team_id] || []}
+            selectedUserId={effectiveUserId}
+            currentUserId={user?.id}
+            onSelectMember={(userId) => handleSelectMember(roster.id, userId)}
+          />
+        );
+      })}
     </div>
   );
 }
 
+// ── Helper: build per-roster availability for a specific user ────────────────
+
+function buildRosterAvail(events, teamId, userId, existingLookup) {
+  const avail = {};
+  for (const event of events) {
+    const session = getSessionFromTime(event.event_time);
+    const key = `${event.event_date}::${session}`;
+    if (key in avail) continue;
+    const lookupKey = `${userId}::${teamId}::${event.event_date}::${session}`;
+    avail[key] = existingLookup[lookupKey] !== false;
+  }
+  return avail;
+}
+
 // ── Per-roster checklist card ────────────────────────────────────────────────
 
-function RosterCard({ roster, availability, saving, onToggle, onMarkAll, onSave }) {
+function RosterCard({
+  roster, availability, saving, onToggle, onMarkAll, onSave,
+  isAdmin, members, selectedUserId, currentUserId, onSelectMember,
+}) {
+  const [memberDropdownOpen, setMemberDropdownOpen] = useState(false);
   const totalSessions = Object.keys(availability).length;
   const availableCount = Object.values(availability).filter(Boolean).length;
+
+  const selectedMemberName = useMemo(() => {
+    if (selectedUserId === currentUserId) return 'Yourself';
+    return members.find((m) => m.user_id === selectedUserId)?.name || 'Unknown';
+  }, [selectedUserId, currentUserId, members]);
 
   const groupedEvents = useMemo(() => {
     const groups = {};
@@ -302,6 +402,62 @@ function RosterCard({ roster, availability, saving, onToggle, onMarkAll, onSave 
       </div>
 
       <div className="p-4 space-y-4">
+        {/* Member selector (admin only) */}
+        {isAdmin && members.length > 0 && (
+          <div className="relative">
+            <button
+              onClick={() => setMemberDropdownOpen(!memberDropdownOpen)}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-surface-200 bg-surface-50 hover:border-surface-300 transition-colors cursor-pointer text-left"
+            >
+              <Users size={15} className="text-surface-400 shrink-0" />
+              <span className="flex-1 text-sm font-medium text-surface-700 truncate">
+                Marking for: <strong className="text-surface-900">{selectedMemberName}</strong>
+              </span>
+              <ChevronDown size={14} className={clsx('text-surface-400 transition-transform', memberDropdownOpen && 'rotate-180')} />
+            </button>
+
+            {memberDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMemberDropdownOpen(false)} />
+                <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-surface-200 shadow-lg max-h-60 overflow-y-auto">
+                  {/* Self option */}
+                  <button
+                    onClick={() => { onSelectMember(currentUserId); setMemberDropdownOpen(false); }}
+                    className={clsx(
+                      'w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm transition-colors cursor-pointer',
+                      selectedUserId === currentUserId ? 'bg-primary-50 text-primary-700 font-semibold' : 'text-surface-700 hover:bg-surface-50'
+                    )}
+                  >
+                    <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-[10px] font-bold text-primary-600 shrink-0">
+                      You
+                    </div>
+                    <span>Yourself</span>
+                    {selectedUserId === currentUserId && <CheckCircle2 size={14} className="ml-auto text-primary-500" />}
+                  </button>
+
+                  <div className="border-t border-surface-100" />
+
+                  {/* Team members */}
+                  {members.filter((m) => m.user_id !== currentUserId).map((m) => (
+                    <button
+                      key={m.user_id}
+                      onClick={() => { onSelectMember(m.user_id); setMemberDropdownOpen(false); }}
+                      className={clsx(
+                        'w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm transition-colors cursor-pointer',
+                        selectedUserId === m.user_id ? 'bg-primary-50 text-primary-700 font-semibold' : 'text-surface-700 hover:bg-surface-50'
+                      )}
+                    >
+                      <Avatar name={m.name} size="xs" />
+                      <span className="truncate">{m.name}</span>
+                      {selectedUserId === m.user_id && <CheckCircle2 size={14} className="ml-auto text-primary-500 shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Summary bar */}
         <div className="flex items-center gap-3 p-3 bg-surface-50 rounded-xl border border-surface-200">
           <div className="flex-1">
@@ -407,7 +563,7 @@ function RosterCard({ roster, availability, saving, onToggle, onMarkAll, onSave 
           loading={saving}
           onClick={onSave}
         >
-          Save Availability
+          Save Availability{isAdmin && selectedUserId !== currentUserId ? ` for ${selectedMemberName}` : ''}
         </Button>
       </div>
     </div>
