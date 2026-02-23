@@ -44,15 +44,16 @@ export default function AvailabilityEditor() {
   const [viewMode, setViewMode] = useState('my');
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
-  // My availability: { dateKey: { available, reason } }
+  // My availability: { dateKey: { session: { available, reason } } }
   const [myAvailability, setMyAvailability] = useState({});
-  // Team availability: { userId: { dateKey: { available, reason } } }
+  // Team availability: { userId: { dateKey: { session: { available, reason } } } }
   const [teamAvailability, setTeamAvailability] = useState({});
 
   const [loadingData, setLoadingData] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reasonModalOpen, setReasonModalOpen] = useState(false);
   const [pendingDate, setPendingDate] = useState(null);
+  const [pendingSession, setPendingSession] = useState('all_day');
   const [reasonText, setReasonText] = useState('');
 
   // Load teams when org is ready
@@ -81,7 +82,7 @@ export default function AvailabilityEditor() {
         supabase
           ? supabase
               .from('availability')
-              .select('user_id, date, is_available, reason')
+              .select('user_id, date, session, is_available, reason')
               .eq('team_id', selectedTeamId)
               .gte('date', monthStart)
               .lte('date', monthEnd)
@@ -92,16 +93,20 @@ export default function AvailabilityEditor() {
 
       const rows = availResult?.data ?? [];
 
-      // Build myAvailability
+      // Build nested maps: { date: { session: { available, reason } } }
       const mine = {};
-      // Build teamAvailability
       const team = {};
       for (const row of rows) {
+        const session = row.session || 'all_day';
         const entry = { available: row.is_available, reason: row.reason || '' };
+
         if (!team[row.user_id]) team[row.user_id] = {};
-        team[row.user_id][row.date] = entry;
+        if (!team[row.user_id][row.date]) team[row.user_id][row.date] = {};
+        team[row.user_id][row.date][session] = entry;
+
         if (row.user_id === user.id) {
-          mine[row.date] = entry;
+          if (!mine[row.date]) mine[row.date] = {};
+          mine[row.date][session] = entry;
         }
       }
 
@@ -119,53 +124,96 @@ export default function AvailabilityEditor() {
   const getAvailabilityForDate = useCallback(
     (date) => {
       const key = typeof date === 'string' ? date : format(date, 'yyyy-MM-dd');
-      return myAvailability[key] ?? null;
+      const dateEntries = myAvailability[key];
+      if (!dateEntries || Object.keys(dateEntries).length === 0) return null;
+
+      // If all_day is set, use it as the primary indicator
+      if (dateEntries['all_day']) {
+        return dateEntries['all_day'];
+      }
+
+      // If any session is unavailable, show as partially unavailable
+      const sessions = Object.values(dateEntries);
+      const anyUnavailable = sessions.some((e) => !e.available);
+      const allUnavailable = sessions.every((e) => !e.available);
+
+      if (allUnavailable) {
+        return { available: false, reason: 'Unavailable for all sessions' };
+      }
+      if (anyUnavailable) {
+        const unavailableSessions = Object.entries(dateEntries)
+          .filter(([, e]) => !e.available)
+          .map(([s]) => s);
+        return {
+          available: false,
+          reason: `Unavailable: ${unavailableSessions.join(', ')}`,
+          partial: true,
+        };
+      }
+      return { available: true, reason: '' };
     },
     [myAvailability]
   );
 
-  const setAvailabilityLocal = useCallback((date, isAvailable, reason = '') => {
+  const setAvailabilityLocal = useCallback((date, isAvailable, reason = '', session = 'all_day') => {
     const key = typeof date === 'string' ? date : format(date, 'yyyy-MM-dd');
     setMyAvailability((prev) => ({
       ...prev,
-      [key]: { available: isAvailable, reason: isAvailable ? '' : reason },
+      [key]: {
+        ...(prev[key] || {}),
+        [session]: { available: isAvailable, reason: isAvailable ? '' : reason },
+      },
     }));
   }, []);
 
   const handleDateClick = useCallback(
     (date) => {
-      const current = getAvailabilityForDate(date);
-      const isCurrentlyAvailable = current ? current.available : true;
+      const key = typeof date === 'string' ? date : format(date, 'yyyy-MM-dd');
+      const dateEntries = myAvailability[key] || {};
+      const hasUnavailable = Object.values(dateEntries).some((e) => !e.available);
 
-      if (isCurrentlyAvailable) {
+      if (!hasUnavailable) {
+        // No unavailability set — open modal to mark unavailable
         setPendingDate(date);
         setReasonText('');
+        setPendingSession('all_day');
         setReasonModalOpen(true);
       } else {
-        setAvailabilityLocal(date, true);
+        // Has unavailability — if all_day, clear it; otherwise open modal to edit
+        if (dateEntries['all_day'] && !dateEntries['all_day'].available) {
+          setAvailabilityLocal(date, true, '', 'all_day');
+        } else {
+          // Open modal to manage session unavailability
+          setPendingDate(date);
+          setReasonText('');
+          setPendingSession('all_day');
+          setReasonModalOpen(true);
+        }
       }
     },
-    [getAvailabilityForDate, setAvailabilityLocal]
+    [myAvailability, setAvailabilityLocal]
   );
 
   const handleReasonConfirm = useCallback(() => {
-    if (pendingDate) setAvailabilityLocal(pendingDate, false, reasonText);
+    if (pendingDate) setAvailabilityLocal(pendingDate, false, reasonText, pendingSession);
     setReasonModalOpen(false);
     setPendingDate(null);
     setReasonText('');
-  }, [pendingDate, reasonText, setAvailabilityLocal]);
+    setPendingSession('all_day');
+  }, [pendingDate, reasonText, pendingSession, setAvailabilityLocal]);
 
   const handleReasonSkip = useCallback(() => {
-    if (pendingDate) setAvailabilityLocal(pendingDate, false, '');
+    if (pendingDate) setAvailabilityLocal(pendingDate, false, '', pendingSession);
     setReasonModalOpen(false);
     setPendingDate(null);
     setReasonText('');
-  }, [pendingDate, setAvailabilityLocal]);
+    setPendingSession('all_day');
+  }, [pendingDate, pendingSession, setAvailabilityLocal]);
 
   const handleMarkSundaysAvailable = useCallback(() => {
     const days = eachDayOfInterval({ start: startOfMonth(currentMonth), end: endOfMonth(currentMonth) });
     days.forEach((day) => {
-      if (isSunday(day)) setAvailabilityLocal(day, true);
+      if (isSunday(day)) setAvailabilityLocal(day, true, '', 'all_day');
     });
     toast.success('All Sundays marked as available');
   }, [currentMonth, setAvailabilityLocal]);
@@ -176,11 +224,11 @@ export default function AvailabilityEditor() {
       start: startOfWeek(now, { weekStartsOn: 0 }),
       end: endOfWeek(now, { weekStartsOn: 0 }),
     });
-    days.forEach((day) => setAvailabilityLocal(day, false, 'Unavailable this week'));
+    days.forEach((day) => setAvailabilityLocal(day, false, 'Unavailable this week', 'all_day'));
     toast.success('Current week marked as unavailable');
   }, [setAvailabilityLocal]);
 
-  // Submit: upsert all entries to Supabase
+  // Submit: upsert all entries to Supabase (flattened from nested session map)
   const handleSubmit = useCallback(async () => {
     if (!supabase || !user?.id || !selectedTeamId) {
       toast.error('Not connected');
@@ -188,13 +236,19 @@ export default function AvailabilityEditor() {
     }
     setSubmitting(true);
     try {
-      const rows = Object.entries(myAvailability).map(([date, entry]) => ({
-        user_id: user.id,
-        team_id: selectedTeamId,
-        date,
-        is_available: entry.available,
-        reason: entry.reason || null,
-      }));
+      const rows = [];
+      for (const [date, sessions] of Object.entries(myAvailability)) {
+        for (const [session, entry] of Object.entries(sessions)) {
+          rows.push({
+            user_id: user.id,
+            team_id: selectedTeamId,
+            date,
+            session,
+            is_available: entry.available,
+            reason: entry.reason || null,
+          });
+        }
+      }
 
       if (rows.length === 0) {
         toast('No changes to save', { icon: 'ℹ️' });
@@ -203,7 +257,7 @@ export default function AvailabilityEditor() {
 
       const { error } = await supabase
         .from('availability')
-        .upsert(rows, { onConflict: 'user_id,team_id,date' });
+        .upsert(rows, { onConflict: 'user_id,team_id,date,session' });
 
       if (error) throw error;
       toast.success('Availability saved successfully');
@@ -218,11 +272,21 @@ export default function AvailabilityEditor() {
   // ── Derived stats ────────────────────────────────────────────────────────
 
   const stats = useMemo(() => {
-    const entries = Object.values(myAvailability);
-    return {
-      available: entries.filter((e) => e.available).length,
-      unavailable: entries.filter((e) => !e.available).length,
-    };
+    let available = 0;
+    let unavailable = 0;
+    for (const sessions of Object.values(myAvailability)) {
+      const allDay = sessions['all_day'];
+      if (allDay) {
+        if (allDay.available) available++;
+        else unavailable++;
+      } else {
+        const values = Object.values(sessions);
+        if (values.length === 0) continue;
+        if (values.every((e) => e.available)) available++;
+        else unavailable++;
+      }
+    }
+    return { available, unavailable };
   }, [myAvailability]);
 
   const overviewDates = useMemo(() => {
@@ -460,20 +524,44 @@ export default function AvailabilityEditor() {
                       </td>
                       {overviewDates.map((date) => {
                         const dateKey = format(date, 'yyyy-MM-dd');
-                        const entry = memberAvail[dateKey];
+                        const dateEntries = memberAvail[dateKey];
                         const dayOfWeek = getDay(date);
                         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
                         let cellBg = isWeekend ? 'bg-surface-50' : 'bg-white';
                         let dotColor = 'bg-surface-200';
+                        let titleText = `${member.name}: Not set`;
 
-                        if (entry) {
-                          if (entry.available) {
-                            dotColor = 'bg-emerald-400';
-                            cellBg = 'bg-emerald-50/50';
+                        if (dateEntries && Object.keys(dateEntries).length > 0) {
+                          const allDay = dateEntries['all_day'];
+                          if (allDay) {
+                            if (allDay.available) {
+                              dotColor = 'bg-emerald-400';
+                              cellBg = 'bg-emerald-50/50';
+                              titleText = `${member.name}: Available`;
+                            } else {
+                              dotColor = 'bg-red-400';
+                              cellBg = 'bg-red-50/50';
+                              titleText = `${member.name}: Unavailable${allDay.reason ? ` - ${allDay.reason}` : ''}`;
+                            }
                           } else {
-                            dotColor = 'bg-red-400';
-                            cellBg = 'bg-red-50/50';
+                            const sessions = Object.entries(dateEntries);
+                            const anyUnavailable = sessions.some(([, e]) => !e.available);
+                            const allUnavailable = sessions.every(([, e]) => !e.available);
+                            if (allUnavailable) {
+                              dotColor = 'bg-red-400';
+                              cellBg = 'bg-red-50/50';
+                              titleText = `${member.name}: Unavailable (all sessions)`;
+                            } else if (anyUnavailable) {
+                              dotColor = 'bg-amber-400';
+                              cellBg = 'bg-amber-50/50';
+                              const unavail = sessions.filter(([, e]) => !e.available).map(([s]) => s);
+                              titleText = `${member.name}: Partially unavailable (${unavail.join(', ')})`;
+                            } else {
+                              dotColor = 'bg-emerald-400';
+                              cellBg = 'bg-emerald-50/50';
+                              titleText = `${member.name}: Available`;
+                            }
                           }
                         }
 
@@ -481,13 +569,7 @@ export default function AvailabilityEditor() {
                           <td
                             key={date.toISOString()}
                             className={clsx('px-1 py-2.5 text-center', cellBg, isToday(date) && 'bg-primary-50/50')}
-                            title={
-                              entry
-                                ? entry.available
-                                  ? `${member.name}: Available`
-                                  : `${member.name}: Unavailable${entry.reason ? ` - ${entry.reason}` : ''}`
-                                : `${member.name}: Not set`
-                            }
+                            title={titleText}
                           >
                             <span className={clsx('inline-block w-3 h-3 rounded-full', dotColor)} />
                           </td>
@@ -500,11 +582,15 @@ export default function AvailabilityEditor() {
             </table>
           </div>
 
-          <div className="px-6 py-3 border-t border-surface-200 flex items-center gap-5">
+          <div className="px-6 py-3 border-t border-surface-200 flex items-center gap-5 flex-wrap">
             <span className="text-xs text-surface-500 font-medium">Legend:</span>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-full bg-emerald-400" />
               <span className="text-xs text-surface-500">Available</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full bg-amber-400" />
+              <span className="text-xs text-surface-500">Partially available</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-full bg-red-400" />
@@ -521,12 +607,37 @@ export default function AvailabilityEditor() {
       {/* ── Reason Modal ────────────────────────────────────────────────── */}
       <Modal
         open={reasonModalOpen}
-        onClose={() => { setReasonModalOpen(false); setPendingDate(null); setReasonText(''); }}
+        onClose={() => { setReasonModalOpen(false); setPendingDate(null); setReasonText(''); setPendingSession('all_day'); }}
         title="Mark Unavailable"
         description={pendingDate ? `Marking ${format(pendingDate, 'EEEE, MMMM d, yyyy')} as unavailable` : ''}
         width="sm"
       >
         <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-2">Session</label>
+            <div className="flex gap-1">
+              {[
+                { value: 'all_day', label: 'All Day' },
+                { value: 'morning', label: 'Morning' },
+                { value: 'afternoon', label: 'Afternoon' },
+                { value: 'evening', label: 'Evening' },
+              ].map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => setPendingSession(s.value)}
+                  className={clsx(
+                    'flex-1 px-2 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer',
+                    pendingSession === s.value
+                      ? 'bg-primary-50 border-primary-400 text-primary-700'
+                      : 'bg-white border-surface-200 text-surface-500 hover:border-surface-300'
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <Input
             label="Reason (optional)"
             placeholder="e.g., Family commitment, work schedule..."

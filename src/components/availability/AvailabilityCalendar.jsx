@@ -136,6 +136,8 @@ export default function AvailabilityCalendar({
           if (inCurrentMonth && availability) {
             if (availability.available) {
               statusBg = 'bg-emerald-50';
+            } else if (availability.partial) {
+              statusBg = 'bg-amber-50';
             } else {
               statusBg = 'bg-red-50';
             }
@@ -182,7 +184,11 @@ export default function AvailabilityCalendar({
                 <span
                   className={clsx(
                     'mt-1.5 w-2 h-2 rounded-full transition-transform duration-150',
-                    availability.available ? 'bg-emerald-500' : 'bg-red-500',
+                    availability.available
+                      ? 'bg-emerald-500'
+                      : availability.partial
+                        ? 'bg-amber-500'
+                        : 'bg-red-500',
                     isHovered && 'scale-125'
                   )}
                 />
@@ -205,8 +211,9 @@ export default function AvailabilityCalendar({
       </div>
 
       {/* Legend */}
-      <div className="flex items-center justify-center gap-5 mt-4 pt-3 border-t border-surface-100">
+      <div className="flex items-center justify-center gap-4 mt-4 pt-3 border-t border-surface-100 flex-wrap">
         <LegendItem color="bg-emerald-500" label="Available" />
+        <LegendItem color="bg-amber-500" label="Partial" />
         <LegendItem color="bg-red-500" label="Unavailable" />
         <LegendItem color="bg-surface-300" label="Not set" />
         <div className="flex items-center gap-1.5">

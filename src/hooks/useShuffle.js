@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { getSessionFromTime, isMemberUnavailable } from '@/lib/utils';
 
 /**
  * Shuffle algorithm hook for roster auto-assignment.
@@ -27,7 +28,7 @@ export default function useShuffle() {
    * @param {Array}  params.members      - Real team members with roleIds
    * @param {Object} params.roleNameToId - Map of role name → team_role UUID
    */
-  const shuffle = useCallback(({ events, roles, teamId, currentAssignments, mode = 'all', members = [], roleNameToId = {} }) => {
+  const shuffle = useCallback(({ events, roles, teamId, currentAssignments, mode = 'all', members = [], roleNameToId = {}, availabilityMap = {} }) => {
     setIsShuffling(true);
 
     return new Promise((resolve) => {
@@ -94,12 +95,15 @@ export default function useShuffle() {
             const teamRoleId = roleNameToId[baseRoleName];
 
             // Get eligible members for this role
+            const eventSession = getSessionFromTime(event.time);
             const eligible = members.filter((m) => {
               // Must have this role (if we can resolve it)
               if (teamRoleId && !(m.roleIds || []).includes(teamRoleId)) return false;
               // Must not already be assigned to another role in this event
               if (assignedToThisEvent.has(m.id)) return false;
-              // TODO: integrate real availability data
+              // Must be available for this event's date + session
+              const { unavailable } = isMemberUnavailable(availabilityMap, m.user_id, event.date, eventSession);
+              if (unavailable) return false;
               return true;
             });
 

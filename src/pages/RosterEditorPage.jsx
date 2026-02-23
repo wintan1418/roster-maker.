@@ -110,6 +110,7 @@ export default function RosterEditorPage() {
   const [events, setEvents] = useState([]);
   const [roleSlots, setRoleSlots] = useState([]);
   const [currentAssignments, setCurrentAssignments] = useState({});
+  const [availabilityMap, setAvailabilityMap] = useState({});
   const [pageLoading, setPageLoading] = useState(!isNew);
 
   // ── Save role config + assignments to DB ──────────────────────────────────
@@ -185,6 +186,29 @@ export default function RosterEditorPage() {
           // Restore saved assignments
           if (savedAssignments && Object.keys(savedAssignments).length > 0) {
             setCurrentAssignments(savedAssignments);
+          }
+
+          // Fetch availability for the roster date range
+          if (supabase && rosterData.start_date && rosterData.end_date) {
+            const { data: availRows } = await supabase
+              .from('availability')
+              .select('user_id, date, session, is_available, reason')
+              .eq('team_id', rosterData.team_id)
+              .gte('date', rosterData.start_date)
+              .lte('date', rosterData.end_date);
+
+            if (!cancelled) {
+              const map = {};
+              for (const row of (availRows ?? [])) {
+                if (!map[row.user_id]) map[row.user_id] = {};
+                if (!map[row.user_id][row.date]) map[row.user_id][row.date] = {};
+                map[row.user_id][row.date][row.session || 'all_day'] = {
+                  available: row.is_available,
+                  reason: row.reason || '',
+                };
+              }
+              setAvailabilityMap(map);
+            }
           }
         }
 
@@ -663,6 +687,7 @@ export default function RosterEditorPage() {
           members={members}
           teamRoles={teamRoles}
           initialAssignments={currentAssignments}
+          availabilityMap={availabilityMap}
           onPreview={handlePreview}
           onPublish={handlePublish}
           onSave={handleSave}

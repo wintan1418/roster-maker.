@@ -93,3 +93,56 @@ export function truncate(str, length = 50) {
   if (str.length <= length) return str;
   return str.slice(0, length).trimEnd() + '\u2026';
 }
+
+/**
+ * Map an event time string (HH:MM or HH:MM:SS) to a session type.
+ *
+ * @param {string|null} timeStr
+ * @returns {'all_day'|'morning'|'afternoon'|'evening'}
+ */
+export function getSessionFromTime(timeStr) {
+  if (!timeStr) return 'all_day';
+  const hour = parseInt(timeStr.split(':')[0], 10);
+  if (isNaN(hour)) return 'all_day';
+  if (hour < 12) return 'morning';
+  if (hour < 17) return 'afternoon';
+  return 'evening';
+}
+
+/**
+ * Check whether a member is unavailable for a specific event date + session.
+ *
+ * availabilityMap shape: { [userId]: { [date]: { [session]: { available, reason } } } }
+ *
+ * An 'all_day' entry with available=false blocks every session on that date.
+ * A session-specific entry only blocks that session.
+ *
+ * @param {Object} availabilityMap
+ * @param {string} userId
+ * @param {string} dateStr  - "YYYY-MM-DD"
+ * @param {string} session  - 'all_day'|'morning'|'afternoon'|'evening'
+ * @returns {{ unavailable: boolean, reason: string }}
+ */
+export function isMemberUnavailable(availabilityMap, userId, dateStr, session) {
+  const userMap = availabilityMap?.[userId]?.[dateStr];
+  if (!userMap) return { unavailable: false, reason: '' };
+
+  // Check all_day block first — blocks every session
+  const allDay = userMap['all_day'];
+  if (allDay && !allDay.available) {
+    return { unavailable: true, reason: allDay.reason || '' };
+  }
+
+  // For all_day events, only all_day unavailability applies
+  if (session === 'all_day') {
+    return { unavailable: false, reason: '' };
+  }
+
+  // Check session-specific block
+  const sessionEntry = userMap[session];
+  if (sessionEntry && !sessionEntry.available) {
+    return { unavailable: true, reason: sessionEntry.reason || '' };
+  }
+
+  return { unavailable: false, reason: '' };
+}

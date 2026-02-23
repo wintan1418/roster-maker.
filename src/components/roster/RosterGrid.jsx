@@ -25,7 +25,7 @@ import Button from '@/components/ui/Button';
 import ShuffleButton from '@/components/roster/ShuffleButton';
 import RosterCell from '@/components/roster/RosterCell';
 import useShuffle from '@/hooks/useShuffle';
-import { formatDate } from '@/lib/utils';
+import { formatDate, getSessionFromTime, isMemberUnavailable } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import useAuthStore from '@/stores/authStore';
 
@@ -43,6 +43,7 @@ export default function RosterGrid({
   members = [],
   teamRoles = [],
   initialAssignments = {},
+  availabilityMap = {},
   onPreview,
   onPublish,
   onSave,
@@ -169,6 +170,7 @@ export default function RosterGrid({
       mode: 'all',
       members,
       roleNameToId,
+      availabilityMap,
     });
     setAssignments(newAssignments);
     setHasChanges(true);
@@ -186,6 +188,7 @@ export default function RosterGrid({
       mode: 'empty_only',
       members,
       roleNameToId,
+      availabilityMap,
     });
     setAssignments(newAssignments);
     setHasChanges(true);
@@ -367,6 +370,11 @@ export default function RosterGrid({
           <tbody className="divide-y divide-surface-100">
             {events.map((event) => {
               const assignedToEvent = getAssignedToEvent(event.id);
+              const eventSession = getSessionFromTime(event.time);
+              const unavailableCount = members.filter((m) => {
+                const { unavailable } = isMemberUnavailable(availabilityMap, m.user_id, event.date, eventSession);
+                return unavailable;
+              }).length;
               return (
                 <tr
                   key={event.id}
@@ -426,6 +434,12 @@ export default function RosterGrid({
                             Service {event.time}
                           </span>
                         )}
+                        {unavailableCount > 0 && (
+                          <span className="inline-flex items-center gap-1 text-xs text-amber-600 mt-0.5">
+                            <AlertTriangle size={11} />
+                            {unavailableCount} unavailable
+                          </span>
+                        )}
                         {/* Event action buttons */}
                         <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
@@ -469,6 +483,8 @@ export default function RosterGrid({
                           teamRoleId={roleNameToId[role.originalRole?.name || role.name.replace(/\s+\d+$/, '')] || null}
                           teamId={roster.team_id}
                           dateStr={event.date}
+                          eventSession={eventSession}
+                          availabilityMap={availabilityMap}
                           assignment={assignments[cellKey]}
                           assignmentCounts={assignmentCounts}
                           members={members}

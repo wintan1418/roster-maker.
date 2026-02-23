@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { Plus, Pin, Shuffle, X, User, Check } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { Plus, Pin, Shuffle, X, User, Check, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 import Avatar from '@/components/ui/Avatar';
+import { isMemberUnavailable } from '@/lib/utils';
 
 /**
  * RosterCell - An individual cell in the roster grid.
@@ -14,6 +15,8 @@ export default function RosterCell({
   teamRoleId,
   teamId,
   dateStr,
+  eventSession = 'all_day',
+  availabilityMap = {},
   assignment,          // { memberId, manual } | undefined
   assignmentCounts,    // { memberId: count } for sorting
   onAssign,            // (eventId, roleId, memberId) => void
@@ -34,6 +37,13 @@ export default function RosterCell({
     : null;
 
   const isManual = assignment?.manual ?? false;
+
+  // Check if the currently assigned member is unavailable
+  const assignedMemberUnavailable = useMemo(() => {
+    if (!assignment?.memberId || !member) return false;
+    const { unavailable } = isMemberUnavailable(availabilityMap, member.user_id, dateStr, eventSession);
+    return unavailable;
+  }, [assignment?.memberId, member, availabilityMap, dateStr, eventSession]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -58,14 +68,19 @@ export default function RosterCell({
   // Get all team members with assignment info and role matching
   const memberOptions = useCallback(() => {
     return members
-      .map((m) => ({
-        ...m,
-        available: true,
-        alreadyAssigned: assignedToEvent?.has(m.id) && m.id !== assignment?.memberId,
-        count: assignmentCounts?.[m.id] || 0,
-        isSelected: m.id === assignment?.memberId,
-        matchesRole: teamRoleId ? (m.roleIds || []).includes(teamRoleId) : true,
-      }))
+      .map((m) => {
+        const { unavailable } = isMemberUnavailable(availabilityMap, m.user_id, dateStr, eventSession);
+        return {
+          ...m,
+          available: !unavailable,
+          alreadyAssigned: assignedToEvent?.has(m.id) && m.id !== assignment?.memberId,
+          count: assignmentCounts?.[m.id] || 0,
+          isSelected: m.id === assignment?.memberId,
+          matchesRole: teamRoleId ? (m.roleIds || []).includes(teamRoleId) : true,
+        };
+      })
+      // Hard block: filter out unavailable members (keep currently selected so admin can see & remove)
+      .filter((m) => m.available || m.isSelected)
       .sort((a, b) => {
         // Selected first
         if (a.isSelected && !b.isSelected) return -1;
@@ -79,7 +94,7 @@ export default function RosterCell({
         // Fewest assignments first
         return a.count - b.count;
       });
-  }, [members, assignedToEvent, assignment, assignmentCounts, teamRoleId]);
+  }, [members, assignedToEvent, assignment, assignmentCounts, teamRoleId, availabilityMap, dateStr, eventSession]);
 
   const handleCellClick = () => {
     if (readOnly) return;
@@ -126,9 +141,11 @@ export default function RosterCell({
             : 'cursor-pointer hover:ring-2 hover:ring-primary-300 active:ring-primary-400',
           hasConflict
             ? 'bg-red-50 hover:bg-red-100/80 ring-1 ring-red-300'
-            : member
-              ? 'bg-sky-50/70 hover:bg-sky-100/80'
-              : 'bg-amber-50/50 hover:bg-amber-100/60',
+            : assignedMemberUnavailable
+              ? 'bg-red-50/60 hover:bg-red-100/70 ring-1 ring-red-200'
+              : member
+                ? 'bg-sky-50/70 hover:bg-sky-100/80'
+                : 'bg-amber-50/50 hover:bg-amber-100/60',
           isOpen && 'ring-2 ring-primary-400 bg-primary-50'
         )}
       >
@@ -139,7 +156,11 @@ export default function RosterCell({
               <p className="text-xs font-medium text-surface-800 truncate leading-tight">
                 {member.name}
               </p>
-              {isManual ? (
+              {assignedMemberUnavailable ? (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-red-600">
+                  <AlertTriangle size={9} /> Unavailable
+                </span>
+              ) : isManual ? (
                 <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-600">
                   <Pin size={9} /> Pinned
                 </span>
@@ -233,8 +254,8 @@ export default function RosterCell({
               <div className="p-4 text-center text-sm text-surface-400">
                 <User size={20} className="mx-auto mb-1 opacity-50" />
                 {teamRoleId
-                  ? 'No members assigned to this role'
-                  : 'No matching members found'}
+                  ? 'No available members for this role'
+                  : 'No available members found'}
               </div>
             ) : (
               filteredOptions.map((m) => (
