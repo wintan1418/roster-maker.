@@ -20,6 +20,7 @@ function getPageTitle(pathname) {
   if (pageTitles[pathname]) return pageTitles[pathname];
   if (/^\/teams\/[^/]+$/.test(pathname)) return 'Team Details';
   if (/^\/rosters\/[^/]+$/.test(pathname)) return 'Edit Roster';
+  if (/^\/availability\/check\//.test(pathname)) return 'Availability Check';
   return 'RosterFlow';
 }
 

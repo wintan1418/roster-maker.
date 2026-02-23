@@ -18,6 +18,7 @@ import {
   CheckSquare,
   Check,
   AlertTriangle,
+  ClipboardCheck,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -53,6 +54,7 @@ export default function RosterGrid({
   onDuplicateRole,
   onRemoveRole,
   onAddRole,
+  onRequestAvailability,
   readOnly = false,
 }) {
   const [assignments, setAssignments] = useState(initialAssignments);
@@ -252,6 +254,17 @@ export default function RosterGrid({
         </div>
 
         <div className="flex items-center gap-2">
+          {!readOnly && onRequestAvailability && events.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              iconLeft={ClipboardCheck}
+              onClick={() => onRequestAvailability(assignments)}
+            >
+              <span className="hidden sm:inline">Request Availability</span>
+              <span className="sm:hidden">Availability</span>
+            </Button>
+          )}
           {!readOnly && (
             <Button
               variant="outline"

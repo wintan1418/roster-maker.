@@ -17,6 +17,7 @@ import useTeamStore from '@/stores/teamStore';
 import useAuthStore from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { ROSTER_STATUS } from '@/lib/constants';
+import { generateShareToken, formatDate } from '@/lib/utils';
 
 const VIEW = {
   CREATOR: 'creator',
@@ -626,6 +627,63 @@ export default function RosterEditorPage() {
     if (chatErr) throw new Error('Team chat failed: ' + chatErr.message);
   }, [roster, publishRoster, roleSlots, currentAssignments, events, members, user]);
 
+  // ── Request Availability Campaign ────────────────────────────────────────
+  const handleRequestAvailability = useCallback(async (assignments) => {
+    if (!roster?.id || !supabase) return;
+
+    try {
+      // Save current assignments first
+      await handleSave(assignments);
+
+      // Generate or reuse availability token
+      let token = roster.availability_token;
+      if (!token) {
+        token = generateShareToken(16);
+        const { error: tokenErr } = await supabase
+          .from('rosters')
+          .update({ availability_token: token })
+          .eq('id', roster.id);
+        if (tokenErr) throw tokenErr;
+        setRoster((prev) => ({ ...prev, availability_token: token }));
+      }
+
+      const link = `${window.location.origin}/availability/check/${token}`;
+
+      // Post to team chat
+      if (roster.team_id) {
+        const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        const lines = [];
+        lines.push(`📋 *Availability Check: ${roster.title}*`);
+        lines.push(`${fmtDate(roster.start_date)} – ${fmtDate(roster.end_date)}`);
+        lines.push('');
+        lines.push('Please mark your availability for the upcoming sessions.');
+        lines.push('');
+        lines.push(`👉 ${link}`);
+        lines.push('');
+        lines.push('Tap the link above to confirm which sessions you can attend.');
+
+        const { error: chatErr } = await supabase.from('team_messages').insert({
+          team_id: roster.team_id,
+          user_id: user?.id,
+          author_name: 'RosterFlow',
+          content: lines.join('\n'),
+        });
+        if (chatErr) console.error('Chat message failed:', chatErr);
+      }
+
+      // Copy link to clipboard
+      try {
+        await navigator.clipboard.writeText(link);
+        toast.success('Availability link sent to team chat & copied to clipboard!');
+      } catch {
+        toast.success('Availability link sent to team chat!');
+      }
+    } catch (err) {
+      console.error('Request availability failed:', err);
+      toast.error('Failed to send availability request: ' + (err.message || 'Unknown error'));
+    }
+  }, [roster, user, handleSave]);
+
   const handleBackToRosters = useCallback(() => {
     navigate('/rosters');
   }, [navigate]);
@@ -697,6 +755,7 @@ export default function RosterEditorPage() {
           onAddEvent={handleAddEvent}
           onRemoveEvent={handleRemoveEvent}
           onUpdateEvent={handleUpdateEvent}
+          onRequestAvailability={handleRequestAvailability}
           readOnly={false}
         />
       )}
