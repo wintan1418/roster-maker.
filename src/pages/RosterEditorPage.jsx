@@ -761,30 +761,39 @@ export default function RosterEditorPage() {
       // 5. Send reminder emails to non-responders
       const emailRecipients = nonResponders.filter((m) => m.email);
       let emailSent = 0;
+      let emailError = '';
       if (emailRecipients.length > 0) {
-        try {
-          const { data: emailResult, error: emailErr } = await supabase.functions.invoke(
-            'send-availability-reminder',
-            {
-              body: {
-                roster_title: roster.title,
-                team_name: roster.team_name || '',
-                start_date: roster.start_date,
-                end_date: roster.end_date,
-                availability_link: link,
-                non_responders: emailRecipients.map((m) => ({ name: m.name, email: m.email })),
-              },
-            }
-          );
-          if (emailErr) console.error('Availability reminder emails failed:', emailErr);
-          else emailSent = emailResult?.sent || 0;
-        } catch (fnErr) {
-          console.error('Edge function call failed:', fnErr);
+        const { data: emailResult, error: emailErr } = await supabase.functions.invoke(
+          'send-availability-reminder',
+          {
+            body: {
+              roster_title: roster.title,
+              team_name: roster.team_name || '',
+              start_date: roster.start_date,
+              end_date: roster.end_date,
+              availability_link: link,
+              non_responders: emailRecipients.map((m) => ({ name: m.name, email: m.email })),
+            },
+          }
+        );
+        if (emailErr) {
+          emailError = emailErr.message || 'Email function failed';
+          console.error('Availability reminder emails failed:', emailErr);
+        } else {
+          emailSent = emailResult?.sent || 0;
+          // Log any per-recipient failures
+          const failed = (emailResult?.results || []).filter((r) => r.status === 'error');
+          if (failed.length > 0) console.error('Some emails failed:', failed);
         }
       }
 
-      const emailMsg = emailSent > 0 ? ` ${emailSent} email${emailSent !== 1 ? 's' : ''} sent.` : '';
-      toast.success(`Reminder sent! ${nonResponders.length} member${nonResponders.length !== 1 ? 's' : ''} haven't responded yet.${emailMsg}`);
+      if (emailRecipients.length === 0) {
+        toast.success(`Chat reminder sent to ${nonResponders.length} non-responder${nonResponders.length !== 1 ? 's' : ''}. No emails on file.`);
+      } else if (emailError) {
+        toast.error(`Chat sent but email failed: ${emailError}`);
+      } else {
+        toast.success(`Reminder sent! ${emailSent} email${emailSent !== 1 ? 's' : ''} sent to non-responders.`);
+      }
     } catch (err) {
       console.error('Remind availability failed:', err);
       toast.error('Failed to send reminder: ' + (err.message || 'Unknown error'));
