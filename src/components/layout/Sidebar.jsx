@@ -5,6 +5,7 @@ import {
   Users,
   Calendar,
   CalendarDays,
+  CalendarCheck2,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -24,6 +25,7 @@ import { getInitials } from '@/lib/utils';
 const superAdminNavItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/my-schedule', label: 'My Schedule', icon: CalendarDays },
+  { to: '/availability', label: 'Availability', icon: CalendarCheck2 },
   { to: '/my-team', label: 'My Team', icon: MessageSquare },
   { to: '/teams', label: 'Teams', icon: Users },
   { to: '/rosters', label: 'Rosters', icon: Calendar },
@@ -34,6 +36,7 @@ const superAdminNavItems = [
 const teamAdminNavItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/my-schedule', label: 'My Schedule', icon: CalendarDays },
+  { to: '/availability', label: 'Availability', icon: CalendarCheck2 },
   { to: '/my-team', label: 'My Team', icon: MessageSquare },
   { to: '/teams', label: 'Teams', icon: Users },
   { to: '/rosters', label: 'Rosters', icon: Calendar },
@@ -43,6 +46,7 @@ const teamAdminNavItems = [
 const memberNavItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/my-schedule', label: 'My Schedule', icon: CalendarDays },
+  { to: '/availability', label: 'Availability', icon: CalendarCheck2 },
   { to: '/my-team', label: 'My Team', icon: MessageSquare },
 ];
 

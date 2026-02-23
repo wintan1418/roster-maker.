@@ -10,6 +10,7 @@ import useChatNotifStore from '@/stores/chatNotifStore';
 const pageTitles = {
   '/dashboard': 'Dashboard',
   '/teams': 'Teams',
+  '/availability': 'Availability',
   '/rosters': 'Rosters',
   '/rosters/new': 'New Roster',
   '/org/settings': 'Organization Settings',

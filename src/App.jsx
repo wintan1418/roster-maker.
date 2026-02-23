@@ -21,6 +21,7 @@ import OrgSettings from './pages/OrgSettings';
 import MemberSchedulePage from './pages/MemberSchedulePage';
 import MyTeamPage from './pages/MyTeamPage';
 import PublicRosterPage from './pages/PublicRosterPage';
+import AvailabilityPage from './pages/AvailabilityPage';
 import NotFound from './pages/NotFound';
 
 export default function App() {
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/my-schedule" element={<MemberSchedulePage />} />
           <Route path="/my-team" element={<MyTeamPage />} />
+          <Route path="/availability" element={<AvailabilityPage />} />
 
           {/* Admin-only routes — members get redirected to /dashboard */}
           <Route element={<RequireAdmin />}>
