@@ -5,5 +5,11 @@ import MemberAvailabilityView from '@/components/availability/MemberAvailability
 export default function AvailabilityPage() {
   const { orgRole } = useAuthStore();
   const isAdmin = orgRole === 'super_admin' || orgRole === 'team_admin';
-  return isAdmin ? <AvailabilityEditor /> : <MemberAvailabilityView />;
+
+  return (
+    <div className="space-y-10">
+      <MemberAvailabilityView />
+      {isAdmin && <AvailabilityEditor />}
+    </div>
+  );
 }
