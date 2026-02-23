@@ -228,7 +228,7 @@ export default function MyTeamPage() {
   }
 
   return (
-    <div className="-m-4 sm:-m-6 lg:-m-8 flex flex-col" style={{ height: 'calc(100dvh - 4rem)' }}>
+    <div className="-m-4 sm:-m-6 lg:-m-8 flex flex-col overflow-x-hidden" style={{ height: 'calc(100dvh - 4rem)' }}>
 
       {/* ── Top bar ────────────────────────────────────────────────────────── */}
       <div
@@ -338,7 +338,7 @@ export default function MyTeamPage() {
           )}
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-2 relative z-10" onClick={() => setActiveMessage(null)}>
+          <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-3 space-y-2 relative z-10" onClick={() => setActiveMessage(null)}>
 
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center py-16">
@@ -382,7 +382,7 @@ export default function MyTeamPage() {
                       <Avatar name={msg.author_name} size="sm" />
                     </div>
                   )}
-                  <div className={`flex flex-col gap-0.5 max-w-[72%] ${isMe ? 'items-end' : 'items-start'}`}>
+                  <div className={`flex flex-col gap-0.5 max-w-[72%] min-w-0 ${isMe ? 'items-end' : 'items-start'}`}>
                     {!isMe && <span className="text-[11px] text-surface-600 px-2 font-semibold">{msg.author_name}</span>}
 
                     {/* Reply reference */}
@@ -397,7 +397,7 @@ export default function MyTeamPage() {
                     {/* Bubble */}
                     <div
                       onClick={(e) => { e.stopPropagation(); setActiveMessage(isActive ? null : msg.id); }}
-                      className={`px-3.5 py-2 rounded-2xl text-sm leading-relaxed break-words whitespace-pre-wrap cursor-pointer transition-all shadow-sm ${
+                      className={`px-3.5 py-2 rounded-2xl text-sm leading-relaxed break-words whitespace-pre-wrap cursor-pointer transition-all shadow-sm overflow-hidden ${
                         isActive ? 'scale-[0.98] ring-2 ring-amber-400/50' : ''
                       } ${isMe ? 'rounded-tr-sm' : 'rounded-tl-sm'}`}
                       style={isMe
