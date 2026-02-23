@@ -189,10 +189,20 @@ export default function MyTeamPage() {
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
 
   function renderContent(content) {
-    return content.split(/(@\w[\w\s]*?)(?=\s|$)/g).map((part, i) => {
-      if (part.startsWith('@') && members.some((m) => `@${m.name}` === part.trim()))
-        return <span key={i} className="bg-amber-100 text-amber-800 rounded px-0.5 font-semibold">{part}</span>;
-      return part;
+    // Split on URLs and @mentions
+    const urlRe = /(https?:\/\/[^\s]+)/g;
+    return content.split(urlRe).flatMap((segment, si) => {
+      // If this segment is a URL, render as a clickable link
+      if (urlRe.test(segment)) {
+        urlRe.lastIndex = 0; // reset after test
+        return <a key={`u${si}`} href={segment} target="_blank" rel="noopener noreferrer" className="text-primary-500 hover:text-primary-600 underline break-all">{segment}</a>;
+      }
+      // Otherwise, handle @mentions within this segment
+      return segment.split(/(@\w[\w\s]*?)(?=\s|$)/g).map((part, i) => {
+        if (part.startsWith('@') && members.some((m) => `@${m.name}` === part.trim()))
+          return <span key={`m${si}-${i}`} className="bg-amber-100 text-amber-800 rounded px-0.5 font-semibold">{part}</span>;
+        return part;
+      });
     });
   }
 
