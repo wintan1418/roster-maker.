@@ -4,6 +4,13 @@ import {
   ArrowLeft,
   PenLine,
   Loader2,
+  ClipboardCheck,
+  MessageSquare,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Button from '@/components/ui/Button';
@@ -101,7 +108,7 @@ export default function RosterEditorPage() {
   const navigate = useNavigate();
   const isNew = !rosterId;
 
-  const { fetchRoster, publishRoster } = useRosterStore();
+  const { fetchRoster, publishRoster, fetchRosterReviews } = useRosterStore();
   const { fetchTeamMembers, fetchTeamRoles, members, roles: teamRoles } = useTeamStore();
   const { user } = useAuthStore();
 
@@ -114,6 +121,8 @@ export default function RosterEditorPage() {
   const [currentAssignments, setCurrentAssignments] = useState({});
   const [guestMembers, setGuestMembers] = useState([]);
   const [availabilityMap, setAvailabilityMap] = useState({});
+  const [reviews, setReviews] = useState([]);
+  const [reviewsExpanded, setReviewsExpanded] = useState(false);
   const [pageLoading, setPageLoading] = useState(!isNew);
 
   // ── Save role config + assignments + guests to DB ────────────────────────
@@ -231,6 +240,14 @@ export default function RosterEditorPage() {
     loadRoster();
     return () => { cancelled = true; };
   }, [rosterId, fetchRoster, fetchTeamRoles, fetchTeamMembers]);
+
+  // ── Fetch reviews for this roster ─────────────────────────────────────────
+  useEffect(() => {
+    if (!roster?.id) return;
+    fetchRosterReviews(roster.id).then(({ data }) => {
+      if (data) setReviews(data);
+    });
+  }, [roster?.id, fetchRosterReviews]);
 
   // ── Handle roster creation from wizard ────────────────────────────────────
   const handleCreate = useCallback(
@@ -820,6 +837,38 @@ export default function RosterEditorPage() {
     }
   }, [roster, user]);
 
+  const handleSendForReview = useCallback(async () => {
+    if (!roster?.id || !supabase) return;
+    try {
+      // Save current state first
+      await saveRoleConfig(roleSlots, currentAssignments);
+
+      // Generate or reuse review_token
+      let token = roster.review_token;
+      if (!token) {
+        token = generateShareToken(16);
+        const { error: tokenErr } = await supabase
+          .from('rosters')
+          .update({ review_token: token })
+          .eq('id', roster.id);
+        if (tokenErr) throw tokenErr;
+        setRoster((prev) => ({ ...prev, review_token: token }));
+      }
+
+      const link = `${window.location.origin}/review/${token}`;
+      try {
+        await navigator.clipboard.writeText(link);
+        toast.success('Review link copied to clipboard!');
+      } catch {
+        // Fallback: show the link in the toast
+        toast.success(`Review link: ${link}`, { duration: 8000 });
+      }
+    } catch (err) {
+      console.error('Send for review failed:', err);
+      toast.error('Failed to generate review link: ' + (err.message || 'Unknown error'));
+    }
+  }, [roster, roleSlots, currentAssignments, saveRoleConfig]);
+
   const handleBackToRosters = useCallback(() => {
     navigate('/rosters');
   }, [navigate]);
@@ -855,8 +904,20 @@ export default function RosterEditorPage() {
               </div>
               <p className="text-xs text-surface-500">{roster.team_name}</p>
             </div>
+          <Button variant="outline" size="sm" iconLeft={ClipboardCheck} onClick={handleSendForReview}>
+            Send for Review
+          </Button>
           </div>
         </div>
+      )}
+
+      {/* Reviews panel */}
+      {currentView !== VIEW.CREATOR && roster && reviews.length > 0 && (
+        <ReviewsPanel
+          reviews={reviews}
+          expanded={reviewsExpanded}
+          onToggle={() => setReviewsExpanded((prev) => !prev)}
+        />
       )}
 
       {currentView === VIEW.CREATOR && (
@@ -920,6 +981,65 @@ export default function RosterEditorPage() {
           onBack={handleBackToEditor}
           onConfirmPublish={handleConfirmPublish}
         />
+      )}
+    </div>
+  );
+}
+
+function ReviewsPanel({ reviews, expanded, onToggle }) {
+  const latestStatus = reviews[0]?.status;
+  const statusConfig = {
+    approved: { label: 'Approved', color: 'success', icon: CheckCircle2 },
+    changes_requested: { label: 'Changes Requested', color: 'warning', icon: AlertTriangle },
+    comment: { label: 'Commented', color: 'default', icon: MessageSquare },
+  };
+  const config = statusConfig[latestStatus] || statusConfig.comment;
+
+  return (
+    <div className="rounded-xl border border-surface-200 bg-white p-4">
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-2 w-full cursor-pointer"
+      >
+        <MessageSquare size={16} className="text-primary-500" />
+        <span className="text-sm font-semibold text-surface-800">Reviews ({reviews.length})</span>
+        <Badge color={config.color} size="sm">
+          {config.label}
+        </Badge>
+        <span className="ml-auto">
+          {expanded ? <ChevronUp size={14} className="text-surface-400" /> : <ChevronDown size={14} className="text-surface-400" />}
+        </span>
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-3 border-t border-surface-100 pt-3">
+          {reviews.map((r) => {
+            const rConfig = statusConfig[r.status] || statusConfig.comment;
+            const Icon = rConfig.icon;
+            return (
+              <div key={r.id} className="flex gap-3">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface-100 flex items-center justify-center text-xs font-semibold text-surface-600">
+                  {r.reviewer_name?.charAt(0)?.toUpperCase() || '?'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-surface-800">{r.reviewer_name}</span>
+                    <Badge color={rConfig.color} size="sm">
+                      <Icon size={10} className="mr-0.5" />
+                      {rConfig.label}
+                    </Badge>
+                    <span className="text-xs text-surface-400 flex items-center gap-1">
+                      <Clock size={10} />
+                      {formatDate(r.created_at, 'MMM d, h:mm a')}
+                    </span>
+                  </div>
+                  {r.comment && (
+                    <p className="text-sm text-surface-600 mt-1">{r.comment}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

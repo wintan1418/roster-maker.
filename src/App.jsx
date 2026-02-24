@@ -23,6 +23,7 @@ import MyTeamPage from './pages/MyTeamPage';
 import PublicRosterPage from './pages/PublicRosterPage';
 import AvailabilityPage from './pages/AvailabilityPage';
 import AvailabilityCheckPage from './pages/AvailabilityCheckPage';
+import ReviewRosterPage from './pages/ReviewRosterPage';
 import NotFound from './pages/NotFound';
 
 export default function App() {
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/join/:joinToken" element={<JoinPage />} />
         <Route path="/invite/:token" element={<InvitePage />} />
+        <Route path="/review/:reviewToken" element={<ReviewRosterPage />} />
 
         {/* Authenticated app routes (inside AppLayout) */}
         <Route element={<AppLayout />}>

@@ -324,6 +324,135 @@ const useRosterStore = create((set) => ({
       set({ loading: false });
     }
   },
+
+  /**
+   * Fetch a roster by its review token (for the public review page).
+   * Works for any status (draft, published, archived).
+   */
+  fetchReviewRoster: async (reviewToken) => {
+    if (!supabase || !reviewToken) return { data: null, error: new Error('Missing token') };
+    set({ loading: true });
+    try {
+      const { data: roster, error: rosterErr } = await supabase
+        .from('rosters')
+        .select(`
+          *,
+          events:roster_events(*),
+          team:teams(id, name, org_id, organization:organizations(name))
+        `)
+        .eq('review_token', reviewToken)
+        .single();
+
+      if (rosterErr) throw rosterErr;
+      if (!roster) throw new Error('Roster not found');
+
+      let members = [];
+      if (roster.team_id) {
+        const { data: memberData } = await supabase
+          .from('team_members')
+          .select(`
+            *,
+            profile:profiles(id, full_name, email, phone, avatar_url),
+            member_roles(id, team_role_id, team_role:team_roles(id, name, category))
+          `)
+          .eq('team_id', roster.team_id);
+
+        members = (memberData ?? []).map((tm) => ({
+          id: tm.id,
+          user_id: tm.user_id,
+          name: tm.profile?.full_name || 'Unknown',
+          email: tm.profile?.email || '',
+          phone: tm.profile?.phone || '',
+          avatar_url: tm.profile?.avatar_url || '',
+          roleIds: (tm.member_roles ?? []).map((mr) => mr.team_role_id),
+          roles: (tm.member_roles ?? [])
+            .filter((mr) => mr.team_role)
+            .map((mr) => ({ id: mr.team_role.id, name: mr.team_role.name, category: mr.team_role.category })),
+        }));
+      }
+
+      const sf = roster.signature_fields;
+      let roleConfig = [];
+      let assignments = {};
+      let guests = [];
+      if (Array.isArray(sf)) {
+        roleConfig = sf;
+      } else if (sf && typeof sf === 'object') {
+        roleConfig = sf.roleConfig || [];
+        assignments = sf.assignments || {};
+        guests = sf.guests || [];
+      }
+
+      const { data: reviews } = await supabase
+        .from('roster_reviews')
+        .select('*')
+        .eq('roster_id', roster.id)
+        .order('created_at', { ascending: true });
+
+      return {
+        data: {
+          roster,
+          events: (roster.events ?? []).sort((a, b) =>
+            (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.event_date.localeCompare(b.event_date)
+          ),
+          team: roster.team,
+          organization: roster.team?.organization,
+          roleConfig,
+          assignments,
+          members,
+          guests,
+          reviews: reviews ?? [],
+        },
+        error: null,
+      };
+    } catch (err) {
+      console.error('Failed to fetch review roster:', err.message);
+      return { data: null, error: err };
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  /**
+   * Submit a review for a roster (used by external reviewers).
+   */
+  submitReview: async (rosterId, reviewerName, comment, status) => {
+    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
+    try {
+      const { data, error } = await supabase
+        .from('roster_reviews')
+        .insert({
+          roster_id: rosterId,
+          reviewer_name: reviewerName,
+          comment: comment || null,
+          status,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return { data, error: null };
+    } catch (err) {
+      return { data: null, error: err };
+    }
+  },
+
+  /**
+   * Fetch reviews for a roster (admin view).
+   */
+  fetchRosterReviews: async (rosterId) => {
+    if (!supabase) return { data: [], error: null };
+    try {
+      const { data, error } = await supabase
+        .from('roster_reviews')
+        .select('*')
+        .eq('roster_id', rosterId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return { data: data ?? [], error: null };
+    } catch (err) {
+      return { data: [], error: err };
+    }
+  },
 }));
 
 export default useRosterStore;
