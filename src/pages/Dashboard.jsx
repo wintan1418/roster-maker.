@@ -10,10 +10,7 @@ import {
   Eye,
   ArrowUpRight,
   ArrowRight,
-  Sparkles,
-  CheckCircle2,
   Rocket,
-  Clock,
   Music,
   Loader2,
   AlertTriangle,
@@ -26,9 +23,7 @@ import {
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
-import Avatar from '@/components/ui/Avatar';
 import useAuthStore from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { formatDate } from '@/lib/utils';
@@ -135,127 +130,268 @@ export default function Dashboard() {
 
       {/* ── Admin View ───────────────────────────────────────────────────── */}
       {isAdmin && (
-        <>
-          {/* Getting Started */}
-          <Card className="border-primary-200 bg-gradient-to-br from-primary-50/50 to-white">
-            <div className="flex items-start gap-4 mb-6">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-100">
-                <Rocket size={24} className="text-primary-600" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-surface-900">
-                  Welcome to RosterFlow!
-                </h2>
-                <p className="text-sm text-surface-500 mt-0.5">
-                  Let's get your organization set up. Follow these steps to create your first roster.
-                </p>
-              </div>
-            </div>
+        <AdminDashboard orgId={orgId} orgRole={orgRole} />
+      )}
+    </div>
+  );
+}
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              {GETTING_STARTED_STEPS.map((step) => {
-                const Icon = step.icon;
-                return (
-                  <Link key={step.step} to={step.to} className="group">
-                    <div className="flex flex-col h-full rounded-xl border border-surface-200 bg-white p-5 transition-all duration-200 hover:border-primary-300 hover:shadow-md">
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-100 text-sm font-bold text-primary-600">
-                          {step.step}
-                        </div>
-                        <Icon size={18} className="text-surface-400" />
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADMIN DASHBOARD — Stats, Quick Actions, Recent Rosters
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const STAT_CONFIG = [
+  { key: 'teams', label: 'Teams', icon: Users, color: 'text-primary-600', bg: 'bg-primary-50' },
+  { key: 'members', label: 'Members', icon: UserPlus, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  { key: 'activeRosters', label: 'Active Rosters', icon: FileText, color: 'text-violet-600', bg: 'bg-violet-50' },
+  { key: 'upcomingEvents', label: 'Upcoming Events', icon: CalendarDays, color: 'text-amber-600', bg: 'bg-amber-50' },
+];
+
+function AdminDashboard({ orgId, orgRole }) {
+  const [stats, setStats] = useState(null);
+  const [hasTeams, setHasTeams] = useState(null);
+  const [recentRosters, setRecentRosters] = useState([]);
+
+  useEffect(() => {
+    if (!supabase || !orgId) return;
+
+    async function fetchDashboardData() {
+      // 1. Get team IDs for this org
+      const { data: teamRows } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('org_id', orgId);
+
+      const teamIds = (teamRows ?? []).map((t) => t.id);
+
+      if (teamIds.length === 0) {
+        setHasTeams(false);
+        setStats({ teams: 0, members: 0, activeRosters: 0, upcomingEvents: 0 });
+        return;
+      }
+
+      setHasTeams(true);
+
+      // 2. Parallel queries for counts
+      const [membersRes, rostersRes] = await Promise.all([
+        supabase
+          .from('team_members')
+          .select('id', { count: 'exact', head: true })
+          .in('team_id', teamIds),
+        supabase
+          .from('rosters')
+          .select('id', { count: 'exact', head: true })
+          .in('team_id', teamIds),
+      ]);
+
+      // 3. Upcoming events count
+      let upcomingEvents = 0;
+      const { data: publishedRosters } = await supabase
+        .from('rosters')
+        .select('id')
+        .in('team_id', teamIds)
+        .eq('status', 'published');
+
+      const rosterIds = (publishedRosters ?? []).map((r) => r.id);
+      if (rosterIds.length > 0) {
+        const today = new Date().toISOString().split('T')[0];
+        const { count } = await supabase
+          .from('roster_events')
+          .select('id', { count: 'exact', head: true })
+          .in('roster_id', rosterIds)
+          .gte('event_date', today);
+        upcomingEvents = count ?? 0;
+      }
+
+      setStats({
+        teams: teamIds.length,
+        members: membersRes.count ?? 0,
+        activeRosters: rostersRes.count ?? 0,
+        upcomingEvents,
+      });
+
+      // 4. Recent rosters
+      const { data: recent } = await supabase
+        .from('rosters')
+        .select('id, title, status, created_at, team:teams!inner(id, name)')
+        .eq('team.org_id', orgId)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      setRecentRosters(recent ?? []);
+    }
+
+    fetchDashboardData();
+  }, [orgId]);
+
+  return (
+    <div className="space-y-8">
+      {/* Getting Started — only when no teams */}
+      {hasTeams === false && (
+        <Card className="border-primary-200 bg-gradient-to-br from-primary-50/50 to-white">
+          <div className="flex items-start gap-4 mb-6">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-100">
+              <Rocket size={24} className="text-primary-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-surface-900">
+                Welcome to RosterFlow!
+              </h2>
+              <p className="text-sm text-surface-500 mt-0.5">
+                Let's get your organization set up. Follow these steps to create your first roster.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {GETTING_STARTED_STEPS.map((step) => {
+              const Icon = step.icon;
+              return (
+                <Link key={step.step} to={step.to} className="group">
+                  <div className="flex flex-col h-full rounded-xl border border-surface-200 bg-white p-5 transition-all duration-200 hover:border-primary-300 hover:shadow-md">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-100 text-sm font-bold text-primary-600">
+                        {step.step}
                       </div>
-                      <h3 className="text-sm font-semibold text-surface-900 group-hover:text-primary-600 transition-colors">
-                        {step.title}
-                      </h3>
-                      <p className="text-xs text-surface-500 mt-1 flex-1">
-                        {step.description}
-                      </p>
-                      <div className="mt-3 flex items-center gap-1 text-xs font-medium text-primary-600">
-                        {step.cta}
-                        <ArrowRight size={12} />
-                      </div>
+                      <Icon size={18} className="text-surface-400" />
                     </div>
-                  </Link>
-                );
-              })}
+                    <h3 className="text-sm font-semibold text-surface-900 group-hover:text-primary-600 transition-colors">
+                      {step.title}
+                    </h3>
+                    <p className="text-xs text-surface-500 mt-1 flex-1">
+                      {step.description}
+                    </p>
+                    <div className="mt-3 flex items-center gap-1 text-xs font-medium text-primary-600">
+                      {step.cta}
+                      <ArrowRight size={12} />
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats
+          ? STAT_CONFIG.map(({ key, label, icon: Icon, color, bg }) => (
+              <Card key={key}>
+                <div className="flex items-center gap-3">
+                  <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${bg} shrink-0`}>
+                    <Icon size={18} className={color} />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-surface-900">{stats[key]}</p>
+                    <p className="text-xs text-surface-500">{label}</p>
+                  </div>
+                </div>
+              </Card>
+            ))
+          : Array.from({ length: 4 }, (_, i) => (
+              <Card key={i}>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-surface-100 animate-pulse shrink-0" />
+                  <div>
+                    <div className="h-7 w-12 rounded bg-surface-100 animate-pulse" />
+                    <div className="mt-1.5 h-3 w-20 rounded bg-surface-100 animate-pulse" />
+                  </div>
+                </div>
+              </Card>
+            ))}
+      </div>
+
+      {/* Quick Actions */}
+      <div>
+        <h2 className="text-base font-semibold text-surface-900 mb-3">
+          Quick Actions
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {QUICK_ACTIONS.map((action) => {
+            const Icon = action.icon;
+            return (
+              <Link key={action.label} to={action.to} className="group">
+                <Card
+                  hover
+                  className="flex items-center gap-4 group-focus-visible:ring-2 group-focus-visible:ring-primary-500"
+                >
+                  <div
+                    className={`shrink-0 flex items-center justify-center w-10 h-10 rounded-lg ${action.iconBg} transition-transform duration-200 group-hover:scale-110`}
+                  >
+                    <Icon size={18} className={action.iconColor} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-surface-900 group-hover:text-primary-600 transition-colors duration-200">
+                      {action.label}
+                    </p>
+                    <p className="text-xs text-surface-500 truncate">
+                      {action.description}
+                    </p>
+                  </div>
+                  <ArrowUpRight
+                    size={16}
+                    className="shrink-0 text-surface-300 group-hover:text-primary-500 transition-all duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                  />
+                </Card>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Recent Rosters */}
+      {recentRosters.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold text-surface-900">Recent Rosters</h2>
+            <Link
+              to="/rosters"
+              className="text-xs font-medium text-primary-600 hover:text-primary-700 flex items-center gap-1 transition-colors"
+            >
+              View all
+              <ArrowRight size={12} />
+            </Link>
+          </div>
+          <Card noPadding>
+            <div className="divide-y divide-surface-100">
+              {recentRosters.map((roster) => (
+                <Link
+                  key={roster.id}
+                  to={`/rosters/${roster.id}`}
+                  className="flex items-center gap-4 px-5 py-4 hover:bg-surface-50 transition-colors"
+                >
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-surface-100 shrink-0">
+                    <FileText size={16} className="text-surface-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-surface-900 truncate">
+                      {roster.title}
+                    </p>
+                    <p className="text-xs text-surface-500">
+                      {roster.team?.name} &middot; {formatDate(roster.created_at)}
+                    </p>
+                  </div>
+                  <Badge
+                    color={
+                      roster.status === 'published'
+                        ? 'success'
+                        : roster.status === 'draft'
+                          ? 'warning'
+                          : 'default'
+                    }
+                    size="sm"
+                  >
+                    {roster.status}
+                  </Badge>
+                </Link>
+              ))}
             </div>
           </Card>
-
-          {/* Quick Actions */}
-          <div>
-            <h2 className="text-base font-semibold text-surface-900 mb-3">
-              Quick Actions
-            </h2>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {QUICK_ACTIONS.map((action) => {
-                const Icon = action.icon;
-                return (
-                  <Link key={action.label} to={action.to} className="group">
-                    <Card
-                      hover
-                      className="flex items-center gap-4 group-focus-visible:ring-2 group-focus-visible:ring-primary-500"
-                    >
-                      <div
-                        className={`shrink-0 flex items-center justify-center w-10 h-10 rounded-lg ${action.iconBg} transition-transform duration-200 group-hover:scale-110`}
-                      >
-                        <Icon size={18} className={action.iconColor} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-surface-900 group-hover:text-primary-600 transition-colors duration-200">
-                          {action.label}
-                        </p>
-                        <p className="text-xs text-surface-500 truncate">
-                          {action.description}
-                        </p>
-                      </div>
-                      <ArrowUpRight
-                        size={16}
-                        className="shrink-0 text-surface-300 group-hover:text-primary-500 transition-all duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-                      />
-                    </Card>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Delete Requests — super_admin only */}
-          {orgRole === 'super_admin' && <DeleteRequestsPanel orgId={orgId} />}
-
-          {/* Features Overview */}
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <Card className="group text-center py-8 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:border-violet-200">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100 mb-4 transition-transform duration-300 group-hover:scale-110">
-                <Sparkles size={24} className="text-violet-600" />
-              </div>
-              <h3 className="font-semibold text-surface-900 group-hover:text-violet-700 transition-colors">Smart Shuffle</h3>
-              <p className="text-sm text-surface-500 mt-1 max-w-xs mx-auto">
-                Auto-assign members to duties fairly with our intelligent algorithm
-              </p>
-            </Card>
-
-            <Card className="group text-center py-8 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:border-emerald-200">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 mb-4 transition-transform duration-300 group-hover:scale-110">
-                <CheckCircle2 size={24} className="text-emerald-600" />
-              </div>
-              <h3 className="font-semibold text-surface-900 group-hover:text-emerald-700 transition-colors">Availability Tracking</h3>
-              <p className="text-sm text-surface-500 mt-1 max-w-xs mx-auto">
-                Members mark their available dates so you never double-book
-              </p>
-            </Card>
-
-            <Card className="group text-center py-8 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:border-blue-200">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-100 mb-4 transition-transform duration-300 group-hover:scale-110">
-                <FileText size={24} className="text-blue-600" />
-              </div>
-              <h3 className="font-semibold text-surface-900 group-hover:text-blue-700 transition-colors">Beautiful Downloads</h3>
-              <p className="text-sm text-surface-500 mt-1 max-w-xs mx-auto">
-                Export professional PDF and PNG rosters to share with your team
-              </p>
-            </Card>
-          </div>
-        </>
+        </div>
       )}
+
+      {/* Delete Requests — super_admin only */}
+      {orgRole === 'super_admin' && <DeleteRequestsPanel orgId={orgId} />}
     </div>
   );
 }
@@ -531,7 +667,7 @@ function MemberDashboard({ user }) {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {teams.map((team) => (
-              <Card key={team.id} className="flex items-center gap-4">
+              <Card key={team.id} className="flex items-center gap-4 border-l-4 border-l-primary-200">
                 <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary-50 shrink-0">
                   <Music size={20} className="text-primary-600" />
                 </div>
