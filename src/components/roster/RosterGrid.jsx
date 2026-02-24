@@ -20,6 +20,8 @@ import {
   AlertTriangle,
   ClipboardCheck,
   Bell,
+  ExternalLink,
+  MessageSquare,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -65,6 +67,7 @@ export default function RosterGrid({
   const [hasChanges, setHasChanges] = useState(false);
   const [songsEvent, setSongsEvent] = useState(null);   // event for setlist modal
   const [attendanceEvent, setAttendanceEvent] = useState(null); // event for attendance modal
+  const [notifyModal, setNotifyModal] = useState(false); // notify member modal
   const { orgRole } = useAuthStore();
   const isAdmin = orgRole === 'super_admin' || orgRole === 'team_admin';
 
@@ -299,6 +302,16 @@ export default function RosterGrid({
               onClick={onRemindAvailability}
             >
               <span className="hidden sm:inline">Remind</span>
+            </Button>
+          )}
+          {!readOnly && events.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              iconLeft={MessageSquare}
+              onClick={() => setNotifyModal(true)}
+            >
+              <span className="hidden sm:inline">Notify</span>
             </Button>
           )}
           {!readOnly && (
@@ -608,6 +621,187 @@ export default function RosterGrid({
           onClose={() => setAttendanceEvent(null)}
         />
       )}
+
+      {notifyModal && (
+        <NotifyMemberModal
+          roster={roster}
+          events={events}
+          roles={roles}
+          assignments={assignments}
+          members={allMembers}
+          onClose={() => setNotifyModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Notify Member Modal ───────────────────────────────────────────────────
+
+function NotifyMemberModal({ roster, events, roles, assignments, members, onClose }) {
+  const [selectedId, setSelectedId] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [songsByEvent, setSongsByEvent] = useState({});
+
+  // Fetch songs for all events
+  useEffect(() => {
+    if (!supabase || events.length === 0) return;
+    const ids = events.map((e) => e.id);
+    supabase.from('event_songs')
+      .select('roster_event_id, title, artist, key, link, sort_order')
+      .in('roster_event_id', ids)
+      .order('sort_order')
+      .then(({ data }) => {
+        const map = {};
+        for (const s of (data ?? [])) {
+          if (!map[s.roster_event_id]) map[s.roster_event_id] = [];
+          map[s.roster_event_id].push(s);
+        }
+        setSongsByEvent(map);
+      });
+  }, [events]);
+
+  // Get unique assigned members
+  const assignedMembers = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    for (const val of Object.values(assignments)) {
+      if (!val?.memberId || seen.has(val.memberId)) continue;
+      seen.add(val.memberId);
+      const m = members.find((mb) => mb.id === val.memberId || mb.user_id === val.memberId);
+      if (m) list.push(m);
+    }
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }, [assignments, members]);
+
+  const selected = assignedMembers.find((m) => m.id === selectedId);
+
+  // Compose personalized message for selected member
+  const message = useMemo(() => {
+    if (!selected) return '';
+    const fmtTime = (t) => { if (!t) return ''; const [h, m] = t.split(':'); const hr = parseInt(h, 10); return `${hr > 12 ? hr - 12 : hr || 12}:${m} ${hr >= 12 ? 'PM' : 'AM'}`; };
+    const lines = [];
+    lines.push(`Hi ${selected.name}! \u{1F44B}`);
+    lines.push('');
+    lines.push(`You've been scheduled for *${roster.title}*:`);
+    lines.push('');
+
+    const sortedEvents = [...events].sort((a, b) => a.date.localeCompare(b.date));
+    for (const event of sortedEvents) {
+      // Find roles for this member on this event
+      const memberRoles = [];
+      for (const role of roles) {
+        const val = assignments[`${event.id}-${role.id}`];
+        if (val?.memberId === selected.id || val?.memberId === selected.user_id) {
+          memberRoles.push(role.name);
+        }
+      }
+      if (memberRoles.length === 0) continue;
+
+      const timeStr = event.time ? ` (${fmtTime(event.time)})` : '';
+      const dateStr = new Date(event.date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+      lines.push(`\u{1F4C5} *${dateStr}* \u{2014} ${event.name}${timeStr}`);
+      for (const r of memberRoles) {
+        lines.push(`  \u{1F3B5} Role: ${r}`);
+      }
+      if (event.rehearsalDate || event.rehearsalTime) {
+        const rehDate = event.rehearsalDate ? new Date(event.rehearsalDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' : '';
+        lines.push(`  \u{1F550} Rehearsal: ${rehDate}${event.rehearsalTime ? fmtTime(event.rehearsalTime) : ''}`);
+      }
+
+      const songs = songsByEvent[event.id] || [];
+      if (songs.length > 0) {
+        lines.push(`  \u{1F3B6} Songs: ${songs.map((s) => `${s.title}${s.key ? ` (${s.key})` : ''}`).join(', ')}`);
+      }
+      lines.push('');
+    }
+
+    const shareLink = roster.share_token ? `${window.location.origin}/r/${roster.share_token}` : '';
+    if (shareLink) lines.push(`\u{1F517} View full roster: ${shareLink}`);
+    lines.push('');
+    lines.push('God bless! \u{1F64F}');
+
+    return lines.join('\n');
+  }, [selected, roster, events, roles, assignments, songsByEvent]);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(message);
+    setCopied(true);
+    toast.success('Message copied!');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleWhatsApp = () => {
+    const phone = selected?.phone?.replace(/\D/g, '') || '';
+    const url = phone
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-surface-900 flex items-center gap-2">
+            <MessageSquare size={18} className="text-green-500" /> Notify Member
+          </h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-100 cursor-pointer">
+            <X size={18} className="text-surface-500" />
+          </button>
+        </div>
+
+        {/* Member selector */}
+        <div className="mb-4">
+          <p className="text-xs text-surface-500 mb-2">Select a member to compose their personalized message:</p>
+          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+            {assignedMembers.length === 0 ? (
+              <p className="text-sm text-surface-400">No members assigned yet.</p>
+            ) : (
+              assignedMembers.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => { setSelectedId(m.id); setCopied(false); }}
+                  className={clsx(
+                    'px-3 py-1.5 text-xs font-medium rounded-full border transition-colors cursor-pointer',
+                    selectedId === m.id
+                      ? 'bg-green-50 border-green-300 text-green-700'
+                      : 'bg-surface-50 border-surface-200 text-surface-600 hover:bg-surface-100'
+                  )}
+                >
+                  {m.name}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Message preview */}
+        {selected && (
+          <>
+            <div className="flex-1 min-h-0 overflow-y-auto mb-4 p-4 rounded-xl bg-green-50 border border-green-200 whitespace-pre-wrap text-sm text-surface-800 font-mono leading-relaxed">
+              {message}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleCopy}
+                className="flex-1 py-2.5 rounded-lg bg-surface-800 text-white text-sm font-medium hover:bg-surface-900 transition-colors cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Copy size={15} />
+                {copied ? 'Copied!' : 'Copy Message'}
+              </button>
+              <button
+                onClick={handleWhatsApp}
+                className="flex-1 py-2.5 rounded-lg bg-green-500 text-white text-sm font-medium hover:bg-green-600 transition-colors cursor-pointer flex items-center justify-center gap-2"
+              >
+                <MessageSquare size={15} />
+                Open WhatsApp
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -620,6 +814,7 @@ function SetlistModal({ event, teamId, roles = [], assignments = {}, members = [
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
   const [key, setKey] = useState('');
+  const [link, setLink] = useState('');
   const [adding, setAdding] = useState(false);
   const { user } = useAuthStore();
 
@@ -655,11 +850,12 @@ function SetlistModal({ event, teamId, roles = [], assignments = {}, members = [
       title: title.trim(),
       artist: artist.trim() || null,
       key: key.trim() || null,
+      link: link.trim() || null,
       sort_order: songs.length,
       added_by: user?.id,
     }).select().single();
     if (error) { console.error('Song insert error:', error); toast.error(error.message || 'Failed to add song'); }
-    else { setSongs((prev) => [...prev, data]); setTitle(''); setArtist(''); setKey(''); }
+    else { setSongs((prev) => [...prev, data]); setTitle(''); setArtist(''); setKey(''); setLink(''); }
     setAdding(false);
   }
 
@@ -699,6 +895,11 @@ function SetlistModal({ event, teamId, roles = [], assignments = {}, members = [
                     {s.key && <span className="ml-1.5 font-mono text-violet-600">Key: {s.key}</span>}
                   </p>
                 </div>
+                {s.link && (
+                  <a href={s.link} target="_blank" rel="noopener noreferrer" className="p-1 rounded hover:bg-violet-50 text-violet-400 hover:text-violet-600" title="Open link">
+                    <ExternalLink size={13} />
+                  </a>
+                )}
                 <button onClick={() => handleDelete(s.id)} className="p-1 rounded hover:bg-red-50 text-surface-300 hover:text-red-500 cursor-pointer">
                   <X size={13} />
                 </button>
@@ -726,6 +927,11 @@ function SetlistModal({ event, teamId, roles = [], assignments = {}, members = [
               className="w-20 px-3 py-2 text-sm rounded-lg border border-surface-200 bg-surface-50 text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-violet-300"
             />
           </div>
+          <input
+            value={link} onChange={(e) => setLink(e.target.value)}
+            placeholder="Link (YouTube, Spotify...)"
+            className="w-full px-3 py-2 text-sm rounded-lg border border-surface-200 bg-surface-50 text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-violet-300"
+          />
           <button type="submit" disabled={!title.trim() || adding}
             className="w-full py-2 rounded-lg bg-violet-500 text-white text-sm font-medium disabled:opacity-40 hover:bg-violet-600 transition-colors cursor-pointer flex items-center justify-center gap-1.5">
             <Plus size={15} /> Add Song
