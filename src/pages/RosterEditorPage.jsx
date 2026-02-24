@@ -904,19 +904,20 @@ export default function RosterEditorPage() {
               </div>
               <p className="text-xs text-surface-500">{roster.team_name}</p>
             </div>
+          </div>
           <Button variant="outline" size="sm" iconLeft={ClipboardCheck} onClick={handleSendForReview}>
             Send for Review
           </Button>
-          </div>
         </div>
       )}
 
-      {/* Reviews panel */}
-      {currentView !== VIEW.CREATOR && roster && reviews.length > 0 && (
+      {/* Reviews panel — visible once roster has been sent for review */}
+      {currentView !== VIEW.CREATOR && roster && (roster.review_token || reviews.length > 0) && (
         <ReviewsPanel
           reviews={reviews}
           expanded={reviewsExpanded}
           onToggle={() => setReviewsExpanded((prev) => !prev)}
+          reviewToken={roster.review_token}
         />
       )}
 
@@ -986,14 +987,28 @@ export default function RosterEditorPage() {
   );
 }
 
-function ReviewsPanel({ reviews, expanded, onToggle }) {
+function ReviewsPanel({ reviews, expanded, onToggle, reviewToken }) {
+  const [copied, setCopied] = useState(false);
   const latestStatus = reviews[0]?.status;
   const statusConfig = {
     approved: { label: 'Approved', color: 'success', icon: CheckCircle2 },
     changes_requested: { label: 'Changes Requested', color: 'warning', icon: AlertTriangle },
     comment: { label: 'Commented', color: 'default', icon: MessageSquare },
   };
-  const config = statusConfig[latestStatus] || statusConfig.comment;
+  const config = latestStatus ? statusConfig[latestStatus] : null;
+
+  const handleCopyLink = async (e) => {
+    e.stopPropagation();
+    if (!reviewToken) return;
+    const link = `${window.location.origin}/review/${reviewToken}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
 
   return (
     <div className="rounded-xl border border-surface-200 bg-white p-4">
@@ -1002,43 +1017,76 @@ function ReviewsPanel({ reviews, expanded, onToggle }) {
         className="flex items-center gap-2 w-full cursor-pointer"
       >
         <MessageSquare size={16} className="text-primary-500" />
-        <span className="text-sm font-semibold text-surface-800">Reviews ({reviews.length})</span>
-        <Badge color={config.color} size="sm">
-          {config.label}
-        </Badge>
+        <span className="text-sm font-semibold text-surface-800">
+          Reviews {reviews.length > 0 ? `(${reviews.length})` : ''}
+        </span>
+        {config && (
+          <Badge color={config.color} size="sm">
+            {config.label}
+          </Badge>
+        )}
+        {reviews.length === 0 && (
+          <span className="text-xs text-surface-400">Awaiting review</span>
+        )}
         <span className="ml-auto">
           {expanded ? <ChevronUp size={14} className="text-surface-400" /> : <ChevronDown size={14} className="text-surface-400" />}
         </span>
       </button>
       {expanded && (
-        <div className="mt-3 space-y-3 border-t border-surface-100 pt-3">
-          {reviews.map((r) => {
-            const rConfig = statusConfig[r.status] || statusConfig.comment;
-            const Icon = rConfig.icon;
-            return (
-              <div key={r.id} className="flex gap-3">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface-100 flex items-center justify-center text-xs font-semibold text-surface-600">
-                  {r.reviewer_name?.charAt(0)?.toUpperCase() || '?'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium text-surface-800">{r.reviewer_name}</span>
-                    <Badge color={rConfig.color} size="sm">
-                      <Icon size={10} className="mr-0.5" />
-                      {rConfig.label}
-                    </Badge>
-                    <span className="text-xs text-surface-400 flex items-center gap-1">
-                      <Clock size={10} />
-                      {formatDate(r.created_at, 'MMM d, h:mm a')}
-                    </span>
+        <div className="mt-3 border-t border-surface-100 pt-3">
+          {/* Review link */}
+          {reviewToken && (
+            <div className="flex items-center gap-2 mb-3 p-2.5 rounded-lg bg-surface-50">
+              <input
+                type="text"
+                readOnly
+                value={`${window.location.origin}/review/${reviewToken}`}
+                className="flex-1 text-xs bg-transparent text-surface-600 outline-none truncate"
+              />
+              <button
+                onClick={handleCopyLink}
+                className="text-xs font-medium text-primary-500 hover:text-primary-600 whitespace-nowrap cursor-pointer"
+              >
+                {copied ? 'Copied!' : 'Copy link'}
+              </button>
+            </div>
+          )}
+
+          {reviews.length === 0 ? (
+            <p className="text-sm text-surface-400 text-center py-3">
+              No reviews yet. Share the link above with your reviewer.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {reviews.map((r) => {
+                const rConfig = statusConfig[r.status] || statusConfig.comment;
+                const Icon = rConfig.icon;
+                return (
+                  <div key={r.id} className="flex gap-3">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface-100 flex items-center justify-center text-xs font-semibold text-surface-600">
+                      {r.reviewer_name?.charAt(0)?.toUpperCase() || '?'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-surface-800">{r.reviewer_name}</span>
+                        <Badge color={rConfig.color} size="sm">
+                          <Icon size={10} className="mr-0.5" />
+                          {rConfig.label}
+                        </Badge>
+                        <span className="text-xs text-surface-400 flex items-center gap-1">
+                          <Clock size={10} />
+                          {formatDate(r.created_at, 'MMM d, h:mm a')}
+                        </span>
+                      </div>
+                      {r.comment && (
+                        <p className="text-sm text-surface-600 mt-1">{r.comment}</p>
+                      )}
+                    </div>
                   </div>
-                  {r.comment && (
-                    <p className="text-sm text-surface-600 mt-1">{r.comment}</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
