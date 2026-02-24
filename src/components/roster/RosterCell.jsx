@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Pin, Shuffle, X, User, Check, AlertTriangle } from 'lucide-react';
+import { Plus, Pin, Shuffle, X, User, Check, AlertTriangle, UserPlus } from 'lucide-react';
 import clsx from 'clsx';
 import Avatar from '@/components/ui/Avatar';
 import { isMemberUnavailable } from '@/lib/utils';
@@ -22,6 +22,7 @@ export default function RosterCell({
   onAssign,            // (eventId, roleId, memberId) => void
   onRemove,            // (eventId, roleId) => void
   onToggleManual,      // (eventId, roleId) => void
+  onAddGuest,          // (name, email) => guestId
   assignedToEvent,     // Set of memberIds already assigned to this event
   members = [],        // all team members
   hasConflict = false, // true when member is double-booked on this event
@@ -29,6 +30,9 @@ export default function RosterCell({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [showGuestForm, setShowGuestForm] = useState(false);
+  const [guestName, setGuestName] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
   const cellRef = useRef(null);
   const dropdownRef = useRef(null);
 
@@ -105,6 +109,22 @@ export default function RosterCell({
     onAssign?.(eventId, roleId, memberId);
     setIsOpen(false);
     setSearch('');
+    setShowGuestForm(false);
+    setGuestName('');
+    setGuestEmail('');
+  };
+
+  const handleAddGuest = () => {
+    if (!guestName.trim()) return;
+    const guestId = onAddGuest?.(guestName.trim(), guestEmail.trim());
+    if (guestId) {
+      onAssign?.(eventId, roleId, guestId);
+    }
+    setIsOpen(false);
+    setSearch('');
+    setShowGuestForm(false);
+    setGuestName('');
+    setGuestEmail('');
   };
 
   const handleRemove = (e) => {
@@ -156,7 +176,11 @@ export default function RosterCell({
               <p className="text-xs font-medium text-surface-800 truncate leading-tight">
                 {member.name}
               </p>
-              {assignedMemberUnavailable ? (
+              {member?.isGuest ? (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-purple-600">
+                  <UserPlus size={9} /> Guest
+                </span>
+              ) : assignedMemberUnavailable ? (
                 <span className="inline-flex items-center gap-0.5 text-[10px] text-red-600">
                   <AlertTriangle size={9} /> Unavailable
                 </span>
@@ -244,25 +268,75 @@ export default function RosterCell({
 
           {/* Member list — strictly filtered by role */}
           <div className="overflow-y-auto max-h-48">
-            {members.length === 0 ? (
+            {members.length === 0 && !showGuestForm ? (
               <div className="p-4 text-center text-sm text-surface-400">
                 <User size={20} className="mx-auto mb-1 opacity-50" />
                 <p>No team members yet</p>
-                <p className="text-xs mt-0.5">Add members to your team first</p>
+                <p className="text-xs mt-0.5">Add a guest or team members first</p>
               </div>
-            ) : filteredOptions.length === 0 ? (
-              <div className="p-4 text-center text-sm text-surface-400">
+            ) : filteredOptions.length === 0 && !showGuestForm ? (
+              <div className="p-3 text-center text-sm text-surface-400">
                 <User size={20} className="mx-auto mb-1 opacity-50" />
                 {teamRoleId
                   ? 'No available members for this role'
                   : 'No available members found'}
               </div>
-            ) : (
+            ) : !showGuestForm && (
               filteredOptions.map((m) => (
                 <MemberOption key={m.id} m={m} onSelect={handleSelectMember} />
               ))
             )}
+
+            {/* Guest form */}
+            {showGuestForm && (
+              <div className="p-2.5 space-y-2">
+                <input
+                  type="text"
+                  value={guestName}
+                  onChange={(e) => setGuestName(e.target.value)}
+                  placeholder="Name *"
+                  autoFocus
+                  className="w-full px-2.5 py-1.5 text-sm rounded-lg bg-surface-50 border border-surface-200 placeholder:text-surface-400 text-surface-900 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:bg-white"
+                />
+                <input
+                  type="email"
+                  value={guestEmail}
+                  onChange={(e) => setGuestEmail(e.target.value)}
+                  placeholder="Email (optional)"
+                  className="w-full px-2.5 py-1.5 text-sm rounded-lg bg-surface-50 border border-surface-200 placeholder:text-surface-400 text-surface-900 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:bg-white"
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddGuest()}
+                />
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={handleAddGuest}
+                    disabled={!guestName.trim()}
+                    className="flex-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Add & Assign
+                  </button>
+                  <button
+                    onClick={() => { setShowGuestForm(false); setGuestName(''); setGuestEmail(''); }}
+                    className="px-2.5 py-1.5 text-xs rounded-lg text-surface-500 hover:bg-surface-100 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Add Guest button at bottom */}
+          {!showGuestForm && onAddGuest && (
+            <div className="border-t border-surface-100">
+              <button
+                onClick={() => setShowGuestForm(true)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-primary-600 hover:bg-primary-50 transition-colors cursor-pointer"
+              >
+                <UserPlus size={14} />
+                Add Guest Member
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -305,6 +379,7 @@ function MemberOption({ m, onSelect }) {
           {m.name}
         </p>
         <div className="flex items-center gap-2 text-[10px] text-surface-400">
+          {m.isGuest && <span className="text-purple-500 font-medium">Guest</span>}
           <span>{m.count} assignment{m.count !== 1 ? 's' : ''}</span>
           {m.alreadyAssigned && (
             <span className="text-surface-400">Already assigned</span>

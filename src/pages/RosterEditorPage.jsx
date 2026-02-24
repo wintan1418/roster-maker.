@@ -64,9 +64,9 @@ function serializeRoleConfig(slots) {
  * Handles both old array format and new object format.
  */
 function parseSignatureFields(sf) {
-  if (!sf) return { roleConfig: null, assignments: {} };
+  if (!sf) return { roleConfig: null, assignments: {}, guests: [] };
 
-  // New object format: { roleConfig: [...], assignments: {...} }
+  // New object format: { roleConfig: [...], assignments: {...}, guests: [...] }
   if (!Array.isArray(sf) && typeof sf === 'object' && sf.roleConfig) {
     const config = Array.isArray(sf.roleConfig) && sf.roleConfig.length > 0 && sf.roleConfig[0]?.originalRoleName
       ? sf.roleConfig.map((c) => ({
@@ -76,7 +76,7 @@ function parseSignatureFields(sf) {
           originalRole: { name: c.originalRoleName, category: c.category || 'custom' },
         }))
       : null;
-    return { roleConfig: config, assignments: sf.assignments || {} };
+    return { roleConfig: config, assignments: sf.assignments || {}, guests: sf.guests || [] };
   }
 
   // Old array format: [{ id, name, slotIndex, originalRoleName, category }, ...]
@@ -89,10 +89,11 @@ function parseSignatureFields(sf) {
         originalRole: { name: c.originalRoleName, category: c.category || 'custom' },
       })),
       assignments: {},
+      guests: [],
     };
   }
 
-  return { roleConfig: null, assignments: {} };
+  return { roleConfig: null, assignments: {}, guests: [] };
 }
 
 export default function RosterEditorPage() {
@@ -111,10 +112,11 @@ export default function RosterEditorPage() {
   const [events, setEvents] = useState([]);
   const [roleSlots, setRoleSlots] = useState([]);
   const [currentAssignments, setCurrentAssignments] = useState({});
+  const [guestMembers, setGuestMembers] = useState([]);
   const [availabilityMap, setAvailabilityMap] = useState({});
   const [pageLoading, setPageLoading] = useState(!isNew);
 
-  // ── Save role config + assignments to DB ──────────────────────────────────
+  // ── Save role config + assignments + guests to DB ────────────────────────
   const saveRoleConfig = useCallback(
     async (slots, assignmentsOverride) => {
       if (!roster?.id || !supabase) return;
@@ -122,13 +124,14 @@ export default function RosterEditorPage() {
       const payload = {
         roleConfig: config,
         assignments: assignmentsOverride ?? currentAssignments,
+        guests: guestMembers,
       };
       await supabase
         .from('rosters')
         .update({ signature_fields: payload })
         .eq('id', roster.id);
     },
-    [roster?.id, currentAssignments]
+    [roster?.id, currentAssignments, guestMembers]
   );
 
   // ── Load existing roster ──────────────────────────────────────────────────
@@ -167,8 +170,8 @@ export default function RosterEditorPage() {
           ]);
           if (cancelled) return;
 
-          // Parse signature_fields for role config + saved assignments
-          const { roleConfig: savedConfig, assignments: savedAssignments } =
+          // Parse signature_fields for role config + saved assignments + guests
+          const { roleConfig: savedConfig, assignments: savedAssignments, guests: savedGuests } =
             parseSignatureFields(rosterData.signature_fields);
 
           if (savedConfig) {
@@ -184,9 +187,12 @@ export default function RosterEditorPage() {
             })));
           }
 
-          // Restore saved assignments
+          // Restore saved assignments and guests
           if (savedAssignments && Object.keys(savedAssignments).length > 0) {
             setCurrentAssignments(savedAssignments);
+          }
+          if (savedGuests && savedGuests.length > 0) {
+            setGuestMembers(savedGuests);
           }
 
           // Fetch availability for the roster date range
@@ -312,21 +318,24 @@ export default function RosterEditorPage() {
   }, [navigate]);
 
   // ── Preview and publish handlers ──────────────────────────────────────────
-  const handlePreview = useCallback((assignments) => {
+  const handlePreview = useCallback((assignments, guests) => {
     setCurrentAssignments(assignments);
+    if (guests) setGuestMembers(guests);
     setCurrentView(VIEW.PREVIEW);
   }, []);
 
-  const handlePublish = useCallback((assignments) => {
+  const handlePublish = useCallback((assignments, guests) => {
     setCurrentAssignments(assignments);
+    if (guests) setGuestMembers(guests);
     setCurrentView(VIEW.PUBLISH);
   }, []);
 
-  const handleSave = useCallback(async (assignments) => {
+  const handleSave = useCallback(async (assignments, guests) => {
     setCurrentAssignments(assignments);
+    if (guests) setGuestMembers(guests);
     if (!roster?.id || !supabase) return;
     const config = serializeRoleConfig(roleSlots);
-    const payload = { roleConfig: config, assignments };
+    const payload = { roleConfig: config, assignments, guests: guests || guestMembers };
     const { error } = await supabase
       .from('rosters')
       .update({ signature_fields: payload })
@@ -335,7 +344,7 @@ export default function RosterEditorPage() {
       console.error('Failed to save assignments:', error);
       toast.error('Failed to save roster');
     }
-  }, [roster?.id, roleSlots]);
+  }, [roster?.id, roleSlots, guestMembers]);
 
   // ── Role column management ────────────────────────────────────────────────
 
@@ -545,7 +554,7 @@ export default function RosterEditorPage() {
       const config = serializeRoleConfig(roleSlots);
       const { error: saveErr } = await supabase
         .from('rosters')
-        .update({ signature_fields: { roleConfig: config, assignments: currentAssignments } })
+        .update({ signature_fields: { roleConfig: config, assignments: currentAssignments, guests: guestMembers } })
         .eq('id', roster.id);
       if (saveErr) throw new Error('Save failed: ' + saveErr.message);
     }
@@ -599,7 +608,8 @@ export default function RosterEditorPage() {
       for (const role of roleSlots) {
         const val = currentAssignments[`${event.id}-${role.id}`];
         if (!val?.memberId) continue;
-        const m = members.find((mb) => mb.id === val.memberId || mb.user_id === val.memberId);
+        const allMbrs = [...members, ...guestMembers];
+        const m = allMbrs.find((mb) => mb.id === val.memberId || mb.user_id === val.memberId);
         if (!m) continue;
         hasAny = true;
         lines.push(`  🎵 ${role.name}: ${m.name}`);
@@ -758,32 +768,42 @@ export default function RosterEditorPage() {
       });
       if (chatErr) console.error('Chat reminder failed:', chatErr);
 
-      // 5. Send reminder emails to non-responders
+      // 5. Send reminder emails to non-responders via fetch (bypass SDK error handling)
       const emailRecipients = nonResponders.filter((m) => m.email);
       let emailSent = 0;
       let emailError = '';
       if (emailRecipients.length > 0) {
-        const { data: emailResult, error: emailErr } = await supabase.functions.invoke(
-          'send-availability-reminder',
-          {
-            body: {
-              roster_title: roster.title,
-              team_name: roster.team_name || '',
-              start_date: roster.start_date,
-              end_date: roster.end_date,
-              availability_link: link,
-              non_responders: emailRecipients.map((m) => ({ name: m.name, email: m.email })),
-            },
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const res = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-availability-reminder`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+                apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+              },
+              body: JSON.stringify({
+                roster_title: roster.title,
+                team_name: roster.team_name || '',
+                start_date: roster.start_date,
+                end_date: roster.end_date,
+                availability_link: link,
+                non_responders: emailRecipients.map((m) => ({ name: m.name, email: m.email })),
+              }),
+            }
+          );
+          const result = await res.json();
+          if (!res.ok) {
+            emailError = result?.error || `HTTP ${res.status}`;
+            console.error('Email function error:', result);
+          } else {
+            emailSent = result?.sent || 0;
           }
-        );
-        if (emailErr) {
-          emailError = emailErr.message || 'Email function failed';
-          console.error('Availability reminder emails failed:', emailErr);
-        } else {
-          emailSent = emailResult?.sent || 0;
-          // Log any per-recipient failures
-          const failed = (emailResult?.results || []).filter((r) => r.status === 'error');
-          if (failed.length > 0) console.error('Some emails failed:', failed);
+        } catch (fetchErr) {
+          emailError = fetchErr.message || 'Network error';
+          console.error('Email fetch failed:', fetchErr);
         }
       }
 
@@ -861,6 +881,7 @@ export default function RosterEditorPage() {
           members={members}
           teamRoles={teamRoles}
           initialAssignments={currentAssignments}
+          initialGuests={guestMembers}
           availabilityMap={availabilityMap}
           onPreview={handlePreview}
           onPublish={handlePublish}
@@ -882,7 +903,7 @@ export default function RosterEditorPage() {
           roster={roster}
           events={events}
           roles={roleSlots}
-          members={members}
+          members={[...members, ...guestMembers]}
           assignments={currentAssignments}
           onBack={handleBackToEditor}
           onPublish={() => setCurrentView(VIEW.PUBLISH)}
@@ -894,7 +915,7 @@ export default function RosterEditorPage() {
           roster={roster}
           events={events}
           roles={roleSlots}
-          members={members}
+          members={[...members, ...guestMembers]}
           assignments={currentAssignments}
           onBack={handleBackToEditor}
           onConfirmPublish={handleConfirmPublish}

@@ -45,6 +45,7 @@ export default function RosterGrid({
   members = [],
   teamRoles = [],
   initialAssignments = {},
+  initialGuests = [],
   availabilityMap = {},
   onPreview,
   onPublish,
@@ -60,6 +61,7 @@ export default function RosterGrid({
   readOnly = false,
 }) {
   const [assignments, setAssignments] = useState(initialAssignments);
+  const [guestMembers, setGuestMembers] = useState(initialGuests);
   const [hasChanges, setHasChanges] = useState(false);
   const [songsEvent, setSongsEvent] = useState(null);   // event for setlist modal
   const [attendanceEvent, setAttendanceEvent] = useState(null); // event for attendance modal
@@ -67,6 +69,28 @@ export default function RosterGrid({
   const isAdmin = orgRole === 'super_admin' || orgRole === 'team_admin';
 
   const { shuffle, clearAutoAssignments, isShuffling } = useShuffle();
+
+  // Merge team members + guests into one list
+  const allMembers = useMemo(() => [...members, ...guestMembers], [members, guestMembers]);
+
+  // Add a guest and return the generated ID
+  const handleAddGuest = useCallback((name, email) => {
+    const guestId = `guest_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const guest = {
+      id: guestId,
+      user_id: guestId,
+      name,
+      email: email || '',
+      phone: '',
+      avatar_url: '',
+      roleIds: [],
+      roles: [],
+      isGuest: true,
+    };
+    setGuestMembers((prev) => [...prev, guest]);
+    setHasChanges(true);
+    return guestId;
+  }, []);
 
   // Build lookup: role name → team_role UUID for member filtering
   const roleNameToId = useMemo(() => {
@@ -221,7 +245,7 @@ export default function RosterGrid({
 
   const handleSave = async () => {
     try {
-      await onSave?.(assignments);
+      await onSave?.(assignments, guestMembers);
       setHasChanges(false);
       toast.success('Roster saved successfully!');
     } catch {
@@ -292,7 +316,7 @@ export default function RosterGrid({
             variant="outline"
             size="sm"
             iconLeft={Eye}
-            onClick={() => onPreview?.(assignments)}
+            onClick={() => onPreview?.(assignments, guestMembers)}
           >
             Preview
           </Button>
@@ -301,7 +325,7 @@ export default function RosterGrid({
               variant="primary"
               size="sm"
               iconLeft={Send}
-              onClick={() => onPublish?.(assignments)}
+              onClick={() => onPublish?.(assignments, guestMembers)}
             >
               Publish
             </Button>
@@ -512,10 +536,11 @@ export default function RosterGrid({
                           availabilityMap={availabilityMap}
                           assignment={assignments[cellKey]}
                           assignmentCounts={assignmentCounts}
-                          members={members}
+                          members={allMembers}
                           onAssign={handleAssign}
                           onRemove={handleRemove}
                           onToggleManual={handleToggleManual}
+                          onAddGuest={!readOnly ? handleAddGuest : undefined}
                           assignedToEvent={assignedToEvent}
                           hasConflict={conflictingCells.has(cellKey)}
                           readOnly={readOnly}
@@ -567,7 +592,7 @@ export default function RosterGrid({
           teamId={roster.team_id}
           roles={roles}
           assignments={assignments}
-          members={members}
+          members={allMembers}
           isAdmin={isAdmin}
           onClose={() => setSongsEvent(null)}
         />
@@ -579,7 +604,7 @@ export default function RosterGrid({
           event={attendanceEvent}
           teamId={roster.team_id}
           assignments={assignments}
-          members={members}
+          members={allMembers}
           onClose={() => setAttendanceEvent(null)}
         />
       )}
