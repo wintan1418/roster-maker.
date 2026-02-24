@@ -139,9 +139,7 @@ export default function RosterCell({
   };
 
   const filteredOptions = memberOptions().filter((m) => {
-    // Strict role filter — only show members with matching role
-    if (teamRoleId && !m.matchesRole) return false;
-    // Text search
+    // Text search only — role matching is used for sorting, not filtering
     if (search && !m.name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
