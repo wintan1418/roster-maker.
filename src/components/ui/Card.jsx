@@ -17,7 +17,7 @@ const Card = forwardRef(function Card(
       className={clsx(
         'bg-white rounded-xl border border-surface-200 shadow-sm',
         'transition-all duration-200 ease-in-out',
-        hover && 'hover:shadow-md hover:border-surface-300 hover:-translate-y-0.5',
+        hover && 'hover:shadow-lg hover:border-surface-300 hover:-translate-y-1',
         !noPadding && 'p-6',
         className
       )}

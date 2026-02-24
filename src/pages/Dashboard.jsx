@@ -224,31 +224,31 @@ export default function Dashboard() {
 
           {/* Features Overview */}
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <Card className="text-center py-8">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100 mb-4">
+            <Card className="group text-center py-8 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:border-violet-200">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100 mb-4 transition-transform duration-300 group-hover:scale-110">
                 <Sparkles size={24} className="text-violet-600" />
               </div>
-              <h3 className="font-semibold text-surface-900">Smart Shuffle</h3>
+              <h3 className="font-semibold text-surface-900 group-hover:text-violet-700 transition-colors">Smart Shuffle</h3>
               <p className="text-sm text-surface-500 mt-1 max-w-xs mx-auto">
                 Auto-assign members to duties fairly with our intelligent algorithm
               </p>
             </Card>
 
-            <Card className="text-center py-8">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 mb-4">
+            <Card className="group text-center py-8 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:border-emerald-200">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 mb-4 transition-transform duration-300 group-hover:scale-110">
                 <CheckCircle2 size={24} className="text-emerald-600" />
               </div>
-              <h3 className="font-semibold text-surface-900">Availability Tracking</h3>
+              <h3 className="font-semibold text-surface-900 group-hover:text-emerald-700 transition-colors">Availability Tracking</h3>
               <p className="text-sm text-surface-500 mt-1 max-w-xs mx-auto">
                 Members mark their available dates so you never double-book
               </p>
             </Card>
 
-            <Card className="text-center py-8">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-100 mb-4">
+            <Card className="group text-center py-8 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:border-blue-200">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-100 mb-4 transition-transform duration-300 group-hover:scale-110">
                 <FileText size={24} className="text-blue-600" />
               </div>
-              <h3 className="font-semibold text-surface-900">Beautiful Downloads</h3>
+              <h3 className="font-semibold text-surface-900 group-hover:text-blue-700 transition-colors">Beautiful Downloads</h3>
               <p className="text-sm text-surface-500 mt-1 max-w-xs mx-auto">
                 Export professional PDF and PNG rosters to share with your team
               </p>

@@ -19,8 +19,8 @@ export default function EmptyState({
       {...props}
     >
       {Icon && (
-        <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-surface-100 mb-5">
-          <Icon size={24} className="text-surface-400" />
+        <div className="animate-float flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-50 to-surface-100 mb-5 shadow-sm">
+          <Icon size={24} className="text-primary-400" />
         </div>
       )}
 

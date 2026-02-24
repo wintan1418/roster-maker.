@@ -154,7 +154,7 @@ export default function Sidebar({ collapsed, onToggle, mobile = false, onClose }
               >
                 {/* Icon with dot badge when collapsed */}
                 <div className="relative shrink-0">
-                  <Icon className="h-5 w-5" />
+                  <Icon className="h-5 w-5 transition-transform duration-200 group-hover:scale-110" />
                   {isChat && badgeCount > 0 && collapsed && !mobile && (
                     <span className={clsx(
                       'absolute -top-1 -right-1 w-2 h-2 rounded-full',

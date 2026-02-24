@@ -149,7 +149,7 @@ export default function Header({ title = 'Dashboard', onMenuToggle }) {
             </button>
 
             {notifOpen && (
-              <div className="absolute right-0 mt-2 w-72 origin-top-right rounded-xl border border-surface-200 bg-white shadow-lg z-50 overflow-hidden">
+              <div className="animate-fade-in-down absolute right-0 mt-2 w-72 origin-top-right rounded-xl border border-surface-200 bg-white shadow-xl z-50 overflow-hidden">
                 <div className="px-4 py-3 border-b border-surface-100">
                   <h3 className="text-sm font-semibold text-surface-900">Notifications</h3>
                 </div>
@@ -234,7 +234,7 @@ export default function Header({ title = 'Dashboard', onMenuToggle }) {
 
             {/* Dropdown menu */}
             {dropdownOpen && (
-              <div className="absolute right-0 mt-2 w-48 origin-top-right rounded-xl border border-surface-200 bg-white py-1 shadow-lg z-50">
+              <div className="animate-fade-in-down absolute right-0 mt-2 w-48 origin-top-right rounded-xl border border-surface-200 bg-white py-1 shadow-xl z-50">
                 <button
                   onClick={handleOpenProfile}
                   className="flex w-full items-center gap-2 px-4 py-2 text-sm text-surface-700 transition-colors hover:bg-surface-50 cursor-pointer"

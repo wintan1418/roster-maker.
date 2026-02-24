@@ -143,9 +143,9 @@ export default function Login() {
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-surface-50">
       {/* ── Decorative background ──────────────────────────────────────────── */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-1/4 -left-1/4 h-[800px] w-[800px] rounded-full bg-primary-400/20 blur-[120px]" />
-        <div className="absolute -right-1/4 -bottom-1/4 h-[600px] w-[600px] rounded-full bg-accent-400/20 blur-[120px]" />
-        <div className="absolute top-1/2 left-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-400/10 blur-[100px]" />
+        <div className="absolute -top-1/4 -left-1/4 h-[800px] w-[800px] rounded-full bg-primary-400/20 blur-[120px] animate-blob" />
+        <div className="absolute -right-1/4 -bottom-1/4 h-[600px] w-[600px] rounded-full bg-accent-400/20 blur-[120px] animate-blob-alt" />
+        <div className="absolute top-1/2 left-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-400/10 blur-[100px] animate-blob" style={{ animationDelay: '2s' }} />
         <div
           className="absolute inset-0 opacity-[0.35]"
           style={{
@@ -159,7 +159,7 @@ export default function Login() {
       {/* ── Card ───────────────────────────────────────────────────────────── */}
       <div className="relative z-10 w-full max-w-md px-4">
         {/* Branding */}
-        <div className="mb-8 text-center">
+        <div className="animate-fade-in-up mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-600 shadow-lg shadow-primary-600/30">
             <Sparkles className="h-7 w-7 text-white" />
           </div>
@@ -173,7 +173,7 @@ export default function Login() {
           </p>
         </div>
 
-        <Card className="shadow-xl shadow-surface-900/5">
+        <Card className="animate-fade-in-up delay-150 shadow-xl shadow-surface-900/5">
           {/* ── Quick login form (default) ──────────────────────────────── */}
           {isQuick && (
             <form onSubmit={handleQuickSubmit} className="space-y-5">
@@ -314,7 +314,7 @@ export default function Login() {
         </Card>
 
         {/* ── Footer link ──────────────────────────────────────────────────── */}
-        <p className="mt-6 text-center text-sm text-surface-500">
+        <p className="animate-fade-in delay-300 mt-6 text-center text-sm text-surface-500">
           Don&rsquo;t have an account?{' '}
           <Link
             to="/signup"

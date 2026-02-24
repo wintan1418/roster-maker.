@@ -89,45 +89,46 @@ export default function Landing() {
       <section className="relative overflow-hidden pt-16">
         {/* Background gradient */}
         <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-accent-50" />
-        <div className="absolute top-20 left-1/2 h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-primary-100/40 blur-3xl" />
+        <div className="absolute top-20 left-1/2 h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-primary-100/40 blur-3xl animate-blob" />
+        <div className="absolute -top-10 -left-20 h-[400px] w-[400px] rounded-full bg-accent-100/30 blur-3xl animate-blob-alt" />
 
         <div className="relative mx-auto max-w-7xl px-4 pb-20 pt-24 sm:px-6 sm:pb-28 sm:pt-32 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-4 py-1.5 text-sm font-medium text-primary-700">
+            <div className="animate-fade-in-up mb-6 inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-4 py-1.5 text-sm font-medium text-primary-700">
               <Sparkles className="h-4 w-4" />
               Smart scheduling made simple
             </div>
 
-            <h1 className="text-4xl font-extrabold tracking-tight text-surface-900 sm:text-5xl lg:text-6xl">
+            <h1 className="animate-fade-in-up delay-100 text-4xl font-extrabold tracking-tight text-surface-900 sm:text-5xl lg:text-6xl">
               Effortless{' '}
               <span className="bg-gradient-to-r from-primary-600 to-primary-400 bg-clip-text text-transparent">
                 Duty Rosters
               </span>
             </h1>
 
-            <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-surface-600 sm:text-xl">
+            <p className="animate-fade-in-up delay-200 mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-surface-600 sm:text-xl">
               Create fair, balanced duty rosters in seconds. RosterFlow handles the
               scheduling so your team can focus on what matters most.
             </p>
 
-            <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+            <div className="animate-fade-in-up delay-300 mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
                 to="/signup"
-                className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-primary-600/25 transition-all hover:bg-primary-700 hover:shadow-xl hover:shadow-primary-600/30"
+                className="group inline-flex items-center gap-2 rounded-xl bg-primary-600 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-primary-600/25 transition-all hover:bg-primary-700 hover:shadow-xl hover:shadow-primary-600/30 hover:-translate-y-0.5"
               >
                 Get Started Free
-                <ArrowRight className="h-5 w-5" />
+                <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
               </Link>
               <a
                 href="#features"
-                className="inline-flex items-center gap-2 rounded-xl border border-surface-300 bg-white px-6 py-3 text-base font-semibold text-surface-700 shadow-sm transition-all hover:border-surface-400 hover:shadow-md"
+                className="inline-flex items-center gap-2 rounded-xl border border-surface-300 bg-white px-6 py-3 text-base font-semibold text-surface-700 shadow-sm transition-all hover:border-surface-400 hover:shadow-md hover:-translate-y-0.5"
               >
                 Learn More
               </a>
             </div>
 
             {/* Trust indicators */}
-            <div className="mt-12 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-surface-500">
+            <div className="animate-fade-in delay-500 mt-12 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-surface-500">
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="h-4 w-4 text-success" />
                 Free to start
@@ -144,8 +145,8 @@ export default function Landing() {
           </div>
 
           {/* Hero visual placeholder */}
-          <div className="mx-auto mt-16 max-w-4xl">
-            <div className="overflow-hidden rounded-2xl border border-surface-200 bg-white shadow-2xl shadow-surface-900/10">
+          <div className="animate-fade-in-up delay-500 mx-auto mt-16 max-w-4xl">
+            <div className="overflow-hidden rounded-2xl border border-surface-200 bg-white shadow-2xl shadow-surface-900/10 transition-shadow hover:shadow-3xl hover:shadow-surface-900/15">
               <div className="flex items-center gap-2 border-b border-surface-100 bg-surface-50 px-4 py-3">
                 <div className="h-3 w-3 rounded-full bg-red-400" />
                 <div className="h-3 w-3 rounded-full bg-yellow-400" />
@@ -194,17 +195,17 @@ export default function Landing() {
           </div>
 
           <div className="mx-auto mt-16 grid max-w-5xl gap-8 sm:grid-cols-2">
-            {features.map(({ icon: Icon, title, description, color }) => (
+            {features.map(({ icon: Icon, title, description, color }, i) => (
               <div
                 key={title}
-                className="group rounded-2xl border border-surface-200 bg-surface-50/50 p-6 transition-all hover:border-primary-200 hover:bg-white hover:shadow-lg hover:shadow-primary-600/5"
+                className="group rounded-2xl border border-surface-200 bg-surface-50/50 p-6 transition-all duration-300 hover:border-primary-200 hover:bg-white hover:shadow-xl hover:shadow-primary-600/8 hover:-translate-y-1"
               >
                 <div
-                  className={`inline-flex rounded-xl p-3 ${color}`}
+                  className={`inline-flex rounded-xl p-3 ${color} transition-transform duration-300 group-hover:scale-110`}
                 >
                   <Icon className="h-6 w-6" />
                 </div>
-                <h3 className="mt-4 text-lg font-semibold text-surface-900">
+                <h3 className="mt-4 text-lg font-semibold text-surface-900 group-hover:text-primary-700 transition-colors">
                   {title}
                 </h3>
                 <p className="mt-2 leading-relaxed text-surface-600">
@@ -217,9 +218,13 @@ export default function Landing() {
       </section>
 
       {/* CTA Section */}
-      <section className="bg-surface-900 py-20">
-        <div className="mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
-          <Calendar className="mx-auto h-12 w-12 text-primary-400" />
+      <section className="relative overflow-hidden bg-surface-900 py-20">
+        <div className="absolute top-0 left-1/4 h-[300px] w-[300px] rounded-full bg-primary-500/10 blur-3xl animate-blob" />
+        <div className="absolute bottom-0 right-1/4 h-[250px] w-[250px] rounded-full bg-accent-500/10 blur-3xl animate-blob-alt" />
+        <div className="relative mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
+          <div className="animate-float">
+            <Calendar className="mx-auto h-12 w-12 text-primary-400" />
+          </div>
           <h2 className="mt-6 text-3xl font-bold text-white sm:text-4xl">
             Ready to simplify your scheduling?
           </h2>
@@ -228,10 +233,10 @@ export default function Landing() {
           </p>
           <Link
             to="/signup"
-            className="mt-8 inline-flex items-center gap-2 rounded-xl bg-primary-500 px-8 py-3.5 text-base font-semibold text-white shadow-lg transition-all hover:bg-primary-400 hover:shadow-xl"
+            className="group mt-8 inline-flex items-center gap-2 rounded-xl bg-primary-500 px-8 py-3.5 text-base font-semibold text-white shadow-lg transition-all hover:bg-primary-400 hover:shadow-xl hover:-translate-y-0.5"
           >
             Get Started Free
-            <ArrowRight className="h-5 w-5" />
+            <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
           </Link>
         </div>
       </section>
