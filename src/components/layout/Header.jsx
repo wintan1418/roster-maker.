@@ -1,32 +1,52 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu, Bell, ChevronDown, User, LogOut, Check, X, Camera } from 'lucide-react';
+import { Menu, Bell, ChevronDown, User, LogOut, Check, X, Camera, MessageSquare, AtSign } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import useAuthStore from '@/stores/authStore';
+import useChatNotifStore from '@/stores/chatNotifStore';
+import useTeamStore from '@/stores/teamStore';
 import { supabase } from '@/lib/supabase';
 import { getInitials } from '@/lib/utils';
 
 export default function Header({ title = 'Dashboard', onMenuToggle }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const notifRef = useRef(null);
   const navigate = useNavigate();
   const { user, profile, orgRole, signOut, fetchProfile } = useAuthStore();
+  const { unreadCounts, hasMention } = useChatNotifStore();
+  const teams = useTeamStore((s) => s.teams);
 
   const displayName = profile?.full_name || user?.user_metadata?.full_name || 'User';
   const initials = getInitials(displayName);
+
+  // Notification data
+  const totalUnread = Object.values(unreadCounts).reduce((sum, c) => sum + c, 0);
+  const hasAnyMention = Object.values(hasMention).some(Boolean);
+  const teamsWithUnread = Object.entries(unreadCounts)
+    .filter(([, count]) => count > 0)
+    .map(([teamId, count]) => {
+      const team = teams.find((t) => t.id === teamId);
+      return { teamId, count, name: team?.name || 'Team', mention: hasMention[teamId] };
+    })
+    .sort((a, b) => (b.mention ? 1 : 0) - (a.mention ? 1 : 0) || b.count - a.count);
 
   // Profile editing state
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Close dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     function handleClickOutside(e) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setDropdownOpen(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        setNotifOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -108,13 +128,86 @@ export default function Header({ title = 'Dashboard', onMenuToggle }) {
         {/* Right section */}
         <div className="flex items-center gap-2">
           {/* Notification bell */}
-          <button
-            className="relative rounded-lg p-2 text-surface-500 transition-colors hover:bg-surface-100 hover:text-surface-700 cursor-pointer"
-            aria-label="Notifications"
-          >
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent-500" />
-          </button>
+          <div className="relative" ref={notifRef}>
+            <button
+              onClick={() => { setNotifOpen(!notifOpen); setDropdownOpen(false); }}
+              className={clsx(
+                'relative rounded-lg p-2 text-surface-500 transition-colors hover:bg-surface-100 hover:text-surface-700 cursor-pointer',
+                notifOpen && 'bg-surface-100 text-surface-700'
+              )}
+              aria-label="Notifications"
+            >
+              <Bell className="h-5 w-5" />
+              {totalUnread > 0 && (
+                <span className={clsx(
+                  'absolute -right-0.5 -top-0.5 flex items-center justify-center rounded-full text-[10px] font-bold text-white min-w-[18px] h-[18px] px-1',
+                  hasAnyMention ? 'bg-red-500' : 'bg-accent-500'
+                )}>
+                  {totalUnread > 99 ? '99+' : totalUnread}
+                </span>
+              )}
+            </button>
+
+            {notifOpen && (
+              <div className="absolute right-0 mt-2 w-72 origin-top-right rounded-xl border border-surface-200 bg-white shadow-lg z-50 overflow-hidden">
+                <div className="px-4 py-3 border-b border-surface-100">
+                  <h3 className="text-sm font-semibold text-surface-900">Notifications</h3>
+                </div>
+
+                {teamsWithUnread.length === 0 ? (
+                  <div className="px-4 py-8 text-center">
+                    <Bell size={24} className="mx-auto text-surface-300 mb-2" />
+                    <p className="text-sm text-surface-400">No new notifications</p>
+                  </div>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto divide-y divide-surface-50">
+                    {teamsWithUnread.map(({ teamId, count, name, mention }) => (
+                      <button
+                        key={teamId}
+                        onClick={() => {
+                          setNotifOpen(false);
+                          navigate('/my-team');
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-50 transition-colors cursor-pointer text-left"
+                      >
+                        <div className={clsx(
+                          'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
+                          mention ? 'bg-red-100 text-red-600' : 'bg-primary-100 text-primary-600'
+                        )}>
+                          {mention ? <AtSign size={14} /> : <MessageSquare size={14} />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-surface-800 truncate">{name}</p>
+                          <p className="text-xs text-surface-500">
+                            {count} new message{count !== 1 ? 's' : ''}
+                            {mention && <span className="text-red-500 font-medium ml-1">mentioned you</span>}
+                          </p>
+                        </div>
+                        <span className={clsx(
+                          'flex-shrink-0 min-w-[20px] h-5 flex items-center justify-center rounded-full text-[10px] font-bold text-white px-1.5',
+                          mention ? 'bg-red-500' : 'bg-primary-500'
+                        )}>
+                          {count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="px-4 py-2.5 border-t border-surface-100">
+                  <button
+                    onClick={() => {
+                      setNotifOpen(false);
+                      navigate('/my-team');
+                    }}
+                    className="text-xs font-medium text-primary-500 hover:text-primary-600 cursor-pointer"
+                  >
+                    View all chats
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* User dropdown */}
           <div className="relative" ref={dropdownRef}>
