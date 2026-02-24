@@ -16,6 +16,7 @@ import {
   ChevronDown,
   Loader2,
   X,
+  UserX,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -70,7 +71,10 @@ export default function OrgSettings() {
     fetchMembers,
     updateOrganization,
     updateMemberRole,
+    removeOrgMember,
   } = useOrgStore();
+
+  const currentUserId = useAuthStore((s) => s.user?.id);
 
   const [org, setOrg] = useState({
     name: '',
@@ -88,6 +92,7 @@ export default function OrgSettings() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [editingRoleId, setEditingRoleId] = useState(null);
+  const [removingMember, setRemovingMember] = useState(null);
   const fileInputRef = useRef(null);
 
   // ── Fetch organization & members on mount ───────────────────────────────
@@ -121,6 +126,7 @@ export default function OrgSettings() {
     () =>
       storeMembers.map((m) => ({
         id: m.id,
+        userId: m.user_id,
         name: m.profile?.full_name || 'Unknown',
         email: m.profile?.email || '',
         role: m.role,
@@ -215,6 +221,17 @@ export default function OrgSettings() {
       toast.success('Member role updated');
     }
   }, [updateMemberRole]);
+
+  const handleRemoveMember = useCallback(async () => {
+    if (!removingMember) return;
+    const { error } = await removeOrgMember(removingMember.id);
+    if (error) {
+      toast.error('Failed to remove member');
+    } else {
+      toast.success(`${removingMember.name} removed from organization`);
+    }
+    setRemovingMember(null);
+  }, [removingMember, removeOrgMember]);
 
   const handleDeleteOrg = useCallback(() => {
     if (deleteConfirmText === org.name) {
@@ -522,6 +539,8 @@ export default function OrgSettings() {
                 <th className="px-6 py-3 text-right text-xs font-semibold tracking-wide text-surface-500 uppercase">
                   Joined
                 </th>
+                <th className="px-6 py-3 text-right text-xs font-semibold tracking-wide text-surface-500 uppercase">
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-100">
@@ -589,12 +608,41 @@ export default function OrgSettings() {
                       year: 'numeric',
                     })}
                   </td>
+                  <td className="px-6 py-4 text-right">
+                    {member.userId !== currentUserId && (
+                      <button
+                        onClick={() => setRemovingMember(member)}
+                        className="p-1.5 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                        title="Remove member"
+                      >
+                        <UserX size={15} />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </Card>
+
+      {/* ── Remove Member Confirmation ───────────────────────────────────── */}
+      <Modal
+        open={!!removingMember}
+        onClose={() => setRemovingMember(null)}
+        title="Remove Member"
+        description={`Are you sure you want to remove "${removingMember?.name}" from the organization? They will lose access to all teams and data.`}
+        width="sm"
+      >
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setRemovingMember(null)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={handleRemoveMember} iconLeft={UserX}>
+            Remove Member
+          </Button>
+        </Modal.Footer>
+      </Modal>
 
       {/* ── Danger Zone ──────────────────────────────────────────────────── */}
       <Card className="border-red-200 bg-red-50/30">

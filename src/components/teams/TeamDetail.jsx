@@ -69,6 +69,7 @@ export default function TeamDetail({
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(team?.name || '');
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [removeMembers, setRemoveMembers] = useState(false);
 
   if (!team) return null;
 
@@ -91,8 +92,9 @@ export default function TeamDetail({
   }
 
   function handleDelete() {
-    onDeleteTeam?.();
+    onDeleteTeam?.(removeMembers);
     setDeleteOpen(false);
+    setRemoveMembers(false);
   }
 
   return (
@@ -267,17 +269,37 @@ export default function TeamDetail({
       {/* Delete confirmation modal */}
       <Modal
         open={deleteOpen}
-        onClose={() => setDeleteOpen(false)}
+        onClose={() => { setDeleteOpen(false); setRemoveMembers(false); }}
         title="Delete Team"
-        description={`Are you sure you want to delete "${team.name}"? All members, roles, and associated rosters will be permanently removed. This cannot be undone.`}
+        description={`Are you sure you want to delete "${team.name}"? All roles and associated rosters will be permanently removed. This cannot be undone.`}
         width="sm"
       >
+        {members.length > 0 && (
+          <div className="px-1 py-3">
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={removeMembers}
+                onChange={(e) => setRemoveMembers(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-surface-300 text-red-500 focus:ring-red-500 cursor-pointer"
+              />
+              <div>
+                <span className="text-sm font-medium text-surface-800 group-hover:text-surface-900">
+                  Also remove {members.length} member{members.length !== 1 ? 's' : ''} from the organization
+                </span>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  If unchecked, members stay in the org and can be added to other teams.
+                </p>
+              </div>
+            </label>
+          </div>
+        )}
         <Modal.Footer>
-          <Button variant="secondary" onClick={() => setDeleteOpen(false)}>
+          <Button variant="secondary" onClick={() => { setDeleteOpen(false); setRemoveMembers(false); }}>
             Cancel
           </Button>
           <Button variant="danger" onClick={handleDelete} iconLeft={Trash2}>
-            Delete Team
+            Delete Team{removeMembers ? ' & Members' : ''}
           </Button>
         </Modal.Footer>
       </Modal>

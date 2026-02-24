@@ -108,15 +108,27 @@ export default function TeamDetailPage() {
     [teamId, updateTeam]
   );
 
-  const handleDeleteTeam = useCallback(async () => {
+  const handleDeleteTeam = useCallback(async (alsoRemoveMembers = false) => {
+    // If removing members from org too, collect user_ids before deleting team
+    if (alsoRemoveMembers && members.length > 0) {
+      const userIds = members.map((m) => m.user_id).filter(Boolean);
+      if (userIds.length > 0 && supabase && orgId) {
+        await supabase
+          .from('org_members')
+          .delete()
+          .eq('organization_id', orgId)
+          .in('user_id', userIds);
+      }
+    }
+
     const { error } = await deleteTeam(teamId);
     if (error) {
       toast.error('Failed to delete team');
     } else {
-      toast.success('Team deleted');
+      toast.success(alsoRemoveMembers ? 'Team and members deleted' : 'Team deleted');
       navigate('/teams');
     }
-  }, [teamId, deleteTeam, navigate]);
+  }, [teamId, deleteTeam, navigate, members, orgId]);
 
   const handleAddMember = useCallback(async (memberData) => {
     const { errors } = await addBulkMembers(

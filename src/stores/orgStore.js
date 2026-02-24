@@ -103,6 +103,50 @@ const useOrgStore = create((set) => ({
   },
 
   /**
+   * Remove a member from the organization.
+   */
+  removeOrgMember: async (memberId) => {
+    try {
+      const { error } = await supabase
+        .from('org_members')
+        .delete()
+        .eq('id', memberId);
+
+      if (error) throw error;
+      set((state) => ({
+        members: state.members.filter((m) => m.id !== memberId),
+      }));
+      return { error: null };
+    } catch (err) {
+      console.error('Failed to remove org member:', err.message);
+      return { error: err };
+    }
+  },
+
+  /**
+   * Remove multiple org members by their user_ids.
+   */
+  removeOrgMembersByUserIds: async (orgId, userIds) => {
+    if (!userIds?.length) return { error: null };
+    try {
+      const { error } = await supabase
+        .from('org_members')
+        .delete()
+        .eq('organization_id', orgId)
+        .in('user_id', userIds);
+
+      if (error) throw error;
+      set((state) => ({
+        members: state.members.filter((m) => !userIds.includes(m.user_id)),
+      }));
+      return { error: null };
+    } catch (err) {
+      console.error('Failed to remove org members:', err.message);
+      return { error: err };
+    }
+  },
+
+  /**
    * Fetch all members belonging to an organization (via org_members join).
    */
   fetchMembers: async (orgId) => {
