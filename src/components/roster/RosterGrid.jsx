@@ -115,27 +115,7 @@ export default function RosterGrid({
     return counts;
   }, [assignments]);
 
-  // Detect conflicts: same member assigned to multiple roles on same event
-  const conflictingCells = useMemo(() => {
-    const conflicting = new Set();
-    const byEvent = {};
-    for (const [key, value] of Object.entries(assignments)) {
-      if (!value?.memberId) continue;
-      const dashIdx = key.indexOf('-');
-      const eventId = key.substring(0, dashIdx);
-      if (!byEvent[eventId]) byEvent[eventId] = {};
-      if (!byEvent[eventId][value.memberId]) byEvent[eventId][value.memberId] = [];
-      byEvent[eventId][value.memberId].push(key);
-    }
-    for (const eventMap of Object.values(byEvent)) {
-      for (const keys of Object.values(eventMap)) {
-        if (keys.length > 1) keys.forEach((k) => conflicting.add(k));
-      }
-    }
-    return conflicting;
-  }, [assignments]);
-
-  const conflictCount = conflictingCells.size / 2; // pairs
+  // Multi-role per event is allowed (e.g. worship leader + acoustic)
 
   // Calculate stats
   const stats = useMemo(() => {
@@ -366,15 +346,7 @@ export default function RosterGrid({
         </span>
       </div>
 
-      {/* Conflict warning */}
-      {conflictingCells.size > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
-          <Info size={15} className="shrink-0 text-red-500" />
-          <span>
-            <strong>Conflict detected:</strong> {Math.ceil(conflictingCells.size / 2)} member{Math.ceil(conflictingCells.size / 2) !== 1 ? 's are' : ' is'} assigned to multiple roles on the same date. Highlighted in red.
-          </span>
-        </div>
-      )}
+      {/* Multi-role assignments are allowed */}
 
       {/* Shuffling overlay */}
       {isShuffling && (
@@ -555,7 +527,7 @@ export default function RosterGrid({
                           onToggleManual={handleToggleManual}
                           onAddGuest={!readOnly ? handleAddGuest : undefined}
                           assignedToEvent={assignedToEvent}
-                          hasConflict={conflictingCells.has(cellKey)}
+                          hasConflict={false}
                           readOnly={readOnly}
                         />
                       </td>

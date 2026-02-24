@@ -352,20 +352,16 @@ export default function RosterCell({
 }
 
 function MemberOption({ m, onSelect }) {
-  const isDisabled = m.alreadyAssigned;
   return (
     <button
-      onClick={() => !isDisabled && onSelect(m.id)}
-      disabled={isDisabled}
+      onClick={() => onSelect(m.id)}
       className={clsx(
         'w-full flex items-center gap-2.5 px-3 py-2 text-left',
         'transition-colors duration-150',
         m.isSelected
           ? 'bg-primary-50 border-l-2 border-primary-500'
           : 'border-l-2 border-transparent',
-        isDisabled
-          ? 'opacity-40 cursor-not-allowed'
-          : 'hover:bg-surface-50 cursor-pointer'
+        'hover:bg-surface-50 cursor-pointer'
       )}
     >
       <Avatar name={m.name} size="sm" className="flex-shrink-0" />
@@ -382,7 +378,7 @@ function MemberOption({ m, onSelect }) {
           {m.isGuest && <span className="text-purple-500 font-medium">Guest</span>}
           <span>{m.count} assignment{m.count !== 1 ? 's' : ''}</span>
           {m.alreadyAssigned && (
-            <span className="text-surface-400">Already assigned</span>
+            <span className="text-amber-500">Also in this event</span>
           )}
         </div>
       </div>
