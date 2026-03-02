@@ -9,6 +9,10 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
+  Copy,
+  ClipboardCheck,
+  Share2,
+  Link,
 } from 'lucide-react';
 import { cn, formatDate } from '@/lib/utils';
 import Button from '@/components/ui/Button';
@@ -46,6 +50,8 @@ export default function PublicRoster({
   const { shareToken } = useParams();
   const [expandedEvent, setExpandedEvent] = useState(null);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const [copiedMembers, setCopiedMembers] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const downloadRef = useRef(null);
 
   const handleViewMySchedule = useCallback(() => {
@@ -59,6 +65,59 @@ export default function PublicRoster({
 
   const toggleEventExpand = useCallback((eventId) => {
     setExpandedEvent((prev) => (prev === eventId ? null : eventId));
+  }, []);
+
+  // Copy all assigned members from the roster as a formatted list
+  const handleCopyMembers = useCallback(async () => {
+    // Collect unique member names from all assignments
+    const memberNames = new Set();
+    for (const eventAssignments of Object.values(assignments)) {
+      for (const memberName of Object.values(eventAssignments)) {
+        if (memberName) memberNames.add(memberName);
+      }
+    }
+    const sorted = [...memberNames].sort((a, b) => a.localeCompare(b));
+    if (sorted.length === 0) return;
+
+    const header = `${organization.name || 'Roster'}${team.name ? ' — ' + team.name : ''}`;
+    const title = roster.name || 'Roster';
+    const lines = sorted.map((name, i) => `${i + 1}. ${name}`);
+    const text = `${header}\n${title}\n${'—'.repeat(30)}\n${lines.join('\n')}\n\nView full roster: ${window.location.href}`;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMembers(true);
+      setTimeout(() => setCopiedMembers(false), 2500);
+    } catch {
+      // Fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopiedMembers(true);
+      setTimeout(() => setCopiedMembers(false), 2500);
+    }
+  }, [assignments, organization, team, roster]);
+
+  // Copy the share link for this roster
+  const handleCopyShareLink = useCallback(async () => {
+    const url = window.location.href.replace(/\/me$/, '');
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }
   }, []);
 
   return (
@@ -267,33 +326,45 @@ export default function PublicRoster({
       </div>
 
       {/* ── Actions ───────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-4 border-t border-surface-200 print:hidden">
-        <Button
-          variant="primary"
-          iconLeft={Eye}
-          onClick={handleViewMySchedule}
-          className="sm:flex-none"
-        >
-          View My Schedule
-        </Button>
+      <div className="flex flex-col gap-3 pt-4 border-t border-surface-200 print:hidden">
+        {/* Primary row */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <Button
+            variant="primary"
+            iconLeft={Eye}
+            onClick={handleViewMySchedule}
+            className="sm:flex-none"
+          >
+            View My Schedule
+          </Button>
 
-        <div className="flex gap-2 sm:ml-auto">
           <Button
-            variant="outline"
-            iconLeft={Printer}
-            onClick={handlePrint}
-            size="md"
+            variant={copiedMembers ? 'primary' : 'outline'}
+            iconLeft={copiedMembers ? ClipboardCheck : Copy}
+            onClick={handleCopyMembers}
+            className="sm:flex-none"
           >
-            Print / PDF
+            {copiedMembers ? 'Copied!' : 'Copy All Members'}
           </Button>
-          <Button
-            variant="ghost"
-            iconLeft={Image}
-            onClick={handlePrint}
-            size="md"
-          >
-            Save as Image
-          </Button>
+
+          <div className="flex gap-2 sm:ml-auto">
+            <Button
+              variant={copiedLink ? 'primary' : 'ghost'}
+              iconLeft={copiedLink ? ClipboardCheck : Link}
+              onClick={handleCopyShareLink}
+              size="md"
+            >
+              {copiedLink ? 'Link Copied!' : 'Copy Share Link'}
+            </Button>
+            <Button
+              variant="ghost"
+              iconLeft={Printer}
+              onClick={handlePrint}
+              size="md"
+            >
+              Print
+            </Button>
+          </div>
         </div>
       </div>
 
